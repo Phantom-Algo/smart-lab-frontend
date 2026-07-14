@@ -187,6 +187,11 @@
           v-else-if="currentPage === 'iot-threshold'"
         />
 
+        <!-- 传感器设备（管理员） -->
+        <SensorDeviceManage
+          v-else-if="currentPage === 'sensor-device'"
+        />
+
         <!-- 场景映射管理（管理员） -->
         <SceneManager
           v-else-if="currentPage === '3d-manager'"
@@ -364,6 +369,7 @@ import CleanSchedule from './components/admin/CleanSchedule.vue'
 import CleanReview from './components/admin/CleanReview.vue'
 import IotMonitor from './components/admin/IotMonitor.vue'
 import IotThreshold from './components/admin/IotThreshold.vue'
+import SensorDeviceManage from './components/admin/SensorDeviceManage.vue'
 import SceneManager from './components/admin/SceneManager.vue'
 import Efficiency from './components/admin/Efficiency.vue'
 import MsgTemplate from './components/admin/MsgTemplate.vue'
@@ -736,6 +742,9 @@ function handleNavigate({ key, name }: { key: string; name: string }): void {
     currentPageName.value = name
   } else if (key === 'iot-threshold') {
     currentPage.value = 'iot-threshold'
+    currentPageName.value = name
+  } else if (key === 'sensor-device') {
+    currentPage.value = 'sensor-device'
     currentPageName.value = name
   } else if (key === '3d-manager') {
     currentPage.value = '3d-manager'
