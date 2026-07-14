@@ -26,11 +26,11 @@
 
     <div class="filter-bar">
       <div class="filter-tabs">
-        <div v-for="t in statusTabs" :key="t.key" class="filter-tab" :class="{ active: activeStatus === t.key }" @click="activeStatus = t.key; pageNum = 1">
+        <div v-for="t in statusTabs" :key="t.key" class="filter-tab" :class="{ active: activeStatus === t.key }" @click="changeStatus(t.key)">
           {{ t.label }}<span v-if="t.count !== undefined" class="tab-count">{{ t.count }}</span>
         </div>
       </div>
-      <input v-model="searchNo" placeholder="搜索预约单号..." class="search-input" @keyup.enter="pageNum = 1" />
+      <input v-model="searchNo" placeholder="搜索预约单号..." class="search-input" @keyup.enter="submitSearch" />
     </div>
 
     <div class="card-list" v-if="pagedList.length > 0">
@@ -44,7 +44,7 @@
           <div class="card-body">
             <div class="card-row">
               <span class="ci-label">实验室</span>
-              <span class="ci-value lab-link">{{ r.labName }}（{{ r.labCode }}）</span>
+              <span class="ci-value lab-link">{{ r.labName }}<template v-if="r.labCode">（{{ r.labCode }}）</template></span>
             </div>
             <div class="card-row">
               <span class="ci-label">申请人</span>
@@ -72,26 +72,26 @@
         </div>
         <div class="card-right">
           <template v-if="r.status === 'pending'">
-            <button class="btn-reject" @click="openReject(r)">驳回</button>
-            <button class="btn-approve" @click="openApprove(r)">审核通过</button>
+            <button class="btn-reject" @click="openReject(r)" :disabled="actionLoading">驳回</button>
+            <button class="btn-approve" @click="openApprove(r)" :disabled="actionLoading">审核通过</button>
           </template>
-          <template v-else-if="r.status === 'approved'">
+          <template v-else-if="r.status === 'approved' && isMockMode">
             <button class="btn-revoke" @click="revokeApproval(r)">撤销审核</button>
           </template>
-          <span v-else class="final-text">{{ r.status === 'rejected' ? '已驳回' : '已取消' }}</span>
+          <span v-else class="final-text">{{ r.statusName }}</span>
         </div>
       </div>
     </div>
 
     <div v-else class="empty-state">
       <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="#ccc" stroke-width="1.2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
-      <p>暂无预约记录</p>
+      <p>{{ emptyText }}</p>
     </div>
 
-    <div class="pagination" v-if="filteredList.length > pageSize">
-      <button :disabled="pageNum <= 1" @click="pageNum--">上一页</button>
+    <div class="pagination" v-if="totalRecordCount > pageSize">
+      <button :disabled="pageNum <= 1 || loading" @click="goPage(pageNum - 1)">上一页</button>
       <span>{{ pageNum }} / {{ totalPages }}</span>
-      <button :disabled="pageNum >= totalPages" @click="pageNum++">下一页</button>
+      <button :disabled="pageNum >= totalPages || loading" @click="goPage(pageNum + 1)">下一页</button>
     </div>
 
     <!-- 审核通过弹窗 -->
@@ -114,7 +114,7 @@
             </div>
             <div class="modal-footer">
               <button class="modal-btn cancel" @click="showApprove = false">取消</button>
-              <button class="modal-btn primary" @click="doApprove">确认通过</button>
+              <button class="modal-btn primary" @click="doApprove" :disabled="actionLoading">确认通过</button>
             </div>
           </div>
         </div>
@@ -142,7 +142,7 @@
             </div>
             <div class="modal-footer">
               <button class="modal-btn cancel" @click="showReject = false">取消</button>
-              <button class="modal-btn danger" @click="doReject" :disabled="!rejectForm.reason.trim()">确认驳回</button>
+              <button class="modal-btn danger" @click="doReject" :disabled="!rejectForm.reason.trim() || actionLoading">确认驳回</button>
             </div>
           </div>
         </div>
@@ -153,21 +153,19 @@
 
 <script setup lang="ts">
 import { ref, computed, reactive, onBeforeUnmount, onMounted } from 'vue'
-import api from '../../utils/api'
 import { isMockMode } from '../../stores/authStore'
+import {
+  approveReservation,
+  getReservationPage,
+  getReservationStats,
+  type ReservationItem,
+  type ReservationStats,
+  type ReservationStatus,
+} from '../../utils/labApi'
 
-type ReservationStatus = 'pending' | 'approved' | 'rejected' | 'cancelled'
+type StatusTabKey = ReservationStatus | 'all'
 
-interface Reservation {
-  id: number; applyNo: string; labId: number; labName: string; labCode: string
-  applicantId: number; applicantName: string; applicantType: number; applicantTypeName: string
-  reserveDate: string; timeSlot: string; peopleCount: number
-  purpose: string; purposeTag: string; purposeTagName: string
-  status: ReservationStatus; statusName: string
-  rejectReason?: string; createdAt: string; approvedAt?: string
-}
-
-const MOCK_RESERVATIONS: Reservation[] = [
+const MOCK_RESERVATIONS: ReservationItem[] = [
   { id:1, applyNo:'LAB-RSV-001', labId:1, labName:'B103 物理实验室', labCode:'LAB-2024-B103',
     applicantId:201, applicantName:'李老师', applicantType:2, applicantTypeName:'教师',
     reserveDate:'2026-07-12', timeSlot:'09:00~12:00', peopleCount:15,
@@ -202,37 +200,49 @@ const MOCK_RESERVATIONS: Reservation[] = [
     status:'cancelled', statusName:'已取消', createdAt:'2026-07-05 09:00' },
 ]
 
-const reservations = ref<Reservation[]>([])
-
-function mapReservationStatus(status: unknown): ReservationStatus {
-  if (status === 'pending' || status === 1) return 'pending'
-  if (status === 'approved' || status === 2) return 'approved'
-  if (status === 'rejected' || status === 3) return 'rejected'
-  return 'cancelled'
-}
-
-function parsePeopleCount(purpose: string | undefined): number {
-  if (!purpose) return 1
-  const matched = purpose.match(/使用人数[:：]\s*(\d+)/)
-  return matched ? Number(matched[1]) : 1
-}
+const reservations = ref<ReservationItem[]>([])
+const apiStats = ref<ReservationStats | null>(null)
+const apiTotal = ref(0)
+const apiPages = ref(1)
+const loading = ref(false)
+const actionLoading = ref(false)
+const loadError = ref('')
 
 async function loadData() {
-  if (isMockMode.value) { reservations.value = [...MOCK_RESERVATIONS]; return }
+  loadError.value = ''
   try {
-    const res = await api.get('/lab-management/reservations', { params: { page: 1, pageSize: 100 } })
-    const records = res.data?.data?.records || []
-    reservations.value = records.map((r: any) => ({
-        id: r.id || 0, applyNo: r.reservationNo || r.applyNo || '', labId: r.labId || 0, labName: r.labName || '', labCode: '',
-        applicantId: r.applicantId || 0, applicantName: r.applicantName || '', applicantType: r.applicantType || 1, applicantTypeName: r.applicantType === 2 ? '教师' : '学生',
-        reserveDate: r.reservationDate || r.reserveDate || '', timeSlot: r.startTime && r.endTime ? r.startTime + '~' + r.endTime : (r.timeSlot || ''),
-        peopleCount: r.peopleCount || parsePeopleCount(r.purpose),
-        purpose: r.purpose || '', purposeTag: r.purposeTag || 'other', purposeTagName: r.purposeTagName || '其他',
-        status: mapReservationStatus(r.reservationStatus),
-        statusName: r.reservationStatusDesc || r.statusName || '待审核',
-        rejectReason: r.rejectReason || r.cancelReason, createdAt: r.createdAt || '', approvedAt: r.approvedAt || r.approveTime
-      }))
-  } catch (e) { console.error('LabApproval loadData error:', e) }
+    if (isMockMode.value) {
+      reservations.value = [...MOCK_RESERVATIONS]
+      apiStats.value = null
+      apiTotal.value = reservations.value.length
+      apiPages.value = Math.ceil(reservations.value.length / pageSize) || 1
+      return
+    }
+
+    loading.value = true
+    const [page, stats] = await Promise.all([
+      getReservationPage({
+        page: pageNum.value,
+        pageSize,
+        status: activeStatus.value === 'all' ? undefined : activeStatus.value,
+        reservationNo: searchNo.value.trim() || undefined,
+      }),
+      getReservationStats(),
+    ])
+    reservations.value = page.records
+    apiTotal.value = page.total
+    apiPages.value = page.pages || 1
+    apiStats.value = stats
+    if (pageNum.value > apiPages.value) {
+      pageNum.value = apiPages.value
+      await loadData()
+    }
+  } catch (e: any) {
+    console.error('LabApproval loadData error:', e)
+    loadError.value = e.message || '加载预约记录失败'
+  } finally {
+    loading.value = false
+  }
 }
 
 function handleRefreshRequest(): void {
@@ -250,47 +260,94 @@ onBeforeUnmount(() => {
   window.removeEventListener('unity-biz-event', handleRefreshRequest)
 })
 
-const activeStatus = ref<ReservationStatus | 'all'>('all')
+const activeStatus = ref<StatusTabKey>('all')
 const searchNo = ref('')
 const pageNum = ref(1)
 const pageSize = 6
 
-const statusTabs = computed(() => [
-  { key: 'all' as const, label: '全部', count: reservations.value.length },
-  { key: 'pending' as const, label: '待审核', count: reservations.value.filter(r => r.status === 'pending').length },
-  { key: 'approved' as const, label: '已通过', count: reservations.value.filter(r => r.status === 'approved').length },
-  { key: 'rejected' as const, label: '已驳回', count: reservations.value.filter(r => r.status === 'rejected').length },
-  { key: 'cancelled' as const, label: '已取消', count: reservations.value.filter(r => r.status === 'cancelled').length },
-])
+const statusConfig: Array<{ key: StatusTabKey; label: string }> = [
+  { key: 'all', label: '全部' },
+  { key: 'pending', label: '待审核' },
+  { key: 'approved', label: '已通过' },
+  { key: 'rejected', label: '已驳回' },
+  { key: 'cancelled', label: '已取消' },
+  { key: 'checkedIn', label: '已签到' },
+  { key: 'absent', label: '已爽约' },
+]
+
+const statusTabs = computed(() => statusConfig.map(item => ({
+  ...item,
+  count: item.key === 'all' ? totalReservationCount.value : statusCount(item.key),
+})))
 
 const filteredList = computed(() => {
+  if (!isMockMode.value) return reservations.value
   let list = reservations.value
   if (activeStatus.value !== 'all') list = list.filter(r => r.status === activeStatus.value)
   if (searchNo.value) list = list.filter(r => r.applyNo.toLowerCase().includes(searchNo.value.toLowerCase()))
   return list
 })
-const totalPages = computed(() => Math.ceil(filteredList.value.length / pageSize) || 1)
-const pagedList = computed(() => filteredList.value.slice((pageNum.value - 1) * pageSize, pageNum.value * pageSize))
+const totalPages = computed(() => isMockMode.value ? Math.ceil(filteredList.value.length / pageSize) || 1 : apiPages.value)
+const pagedList = computed(() => isMockMode.value ? filteredList.value.slice((pageNum.value - 1) * pageSize, pageNum.value * pageSize) : reservations.value)
+const totalRecordCount = computed(() => isMockMode.value ? filteredList.value.length : apiTotal.value)
+const totalReservationCount = computed(() => {
+  if (isMockMode.value) return reservations.value.length
+  const counts = apiStats.value?.statusCounts ?? {}
+  return Object.values(counts).reduce((sum, value) => sum + (value ?? 0), 0)
+})
 
-const pendingCount = computed(() => reservations.value.filter(r => r.status === 'pending').length)
+const pendingCount = computed(() => isMockMode.value ? reservations.value.filter(r => r.status === 'pending').length : (apiStats.value?.pendingCount ?? 0))
 const todayApproved = computed(() => {
+  if (!isMockMode.value) return apiStats.value?.todayApproved ?? 0
   const today = new Date().toISOString().slice(0, 10)
   return reservations.value.filter(r => r.status === 'approved' && r.approvedAt?.startsWith(today)).length
 })
-const monthReservations = computed(() => reservations.value.length)
+const monthReservations = computed(() => isMockMode.value ? reservations.value.length : (apiStats.value?.monthReservations ?? 0))
 const approvalRate = computed(() => {
-  const decided = reservations.value.filter(r => r.status === 'approved' || r.status === 'rejected').length
-  return decided === 0 ? 0 : Math.round(reservations.value.filter(r => r.status === 'approved').length / decided * 100)
+  if (!isMockMode.value) return apiStats.value?.approvalRate ?? 0
+  const approvedStatuses: ReservationStatus[] = ['approved', 'checkedIn', 'absent']
+  const approved = reservations.value.filter(r => approvedStatuses.includes(r.status)).length
+  const rejected = reservations.value.filter(r => r.status === 'rejected').length
+  return approved + rejected === 0 ? 0 : Math.round(approved / (approved + rejected) * 100)
 })
+const emptyText = computed(() => loading.value ? '预约记录加载中...' : (loadError.value || '暂无预约记录'))
 
 const showApprove = ref(false)
 const showReject = ref(false)
-const currentReservation = ref<Reservation | null>(null)
+const currentReservation = ref<ReservationItem | null>(null)
 const rejectForm = reactive({ reason: '' })
 const quickReasons = ['该时段已被占用', '人数超出实验室容量', '实验室正在维护中', '预约用途不符合规定']
 
-function openApprove(r: Reservation) { currentReservation.value = r; showApprove.value = true }
-function openReject(r: Reservation) { currentReservation.value = r; rejectForm.reason = ''; showReject.value = true }
+function statusCount(status: StatusTabKey): number {
+  if (status === 'all') return totalReservationCount.value
+  if (isMockMode.value) return reservations.value.filter(r => r.status === status).length
+  return apiStats.value?.statusCounts[status] ?? 0
+}
+
+function changeStatus(status: StatusTabKey): void {
+  activeStatus.value = status
+  pageNum.value = 1
+  void loadData()
+}
+
+function submitSearch(): void {
+  pageNum.value = 1
+  void loadData()
+}
+
+function goPage(page: number): void {
+  const nextPage = Math.min(Math.max(page, 1), totalPages.value)
+  if (nextPage === pageNum.value) return
+  pageNum.value = nextPage
+  void loadData()
+}
+
+function refreshAfterMutation(): void {
+  void loadData()
+}
+
+function openApprove(r: ReservationItem) { currentReservation.value = r; showApprove.value = true }
+function openReject(r: ReservationItem) { currentReservation.value = r; rejectForm.reason = ''; showReject.value = true }
 async function doApprove() {
   if (!currentReservation.value) return
   if (isMockMode.value) {
@@ -299,12 +356,12 @@ async function doApprove() {
     showApprove.value = false; return
   }
   try {
-    await api.patch(`/lab-management/reservations/${currentReservation.value.applyNo}/approve`, {
-      approved: true,
-      approveComment: '审核通过'
-    })
-    showApprove.value = false; loadData()
+    actionLoading.value = true
+    await approveReservation({ reservationNo: currentReservation.value.applyNo, action: 'approve' })
+    showApprove.value = false
+    refreshAfterMutation()
   } catch (e: any) { alert(e.message || '操作失败') }
+  finally { actionLoading.value = false }
 }
 async function doReject() {
   if (!currentReservation.value || !rejectForm.reason.trim()) return
@@ -314,14 +371,18 @@ async function doReject() {
     showReject.value = false; return
   }
   try {
-    await api.patch(`/lab-management/reservations/${currentReservation.value.applyNo}/approve`, {
-      approved: false,
-      approveComment: rejectForm.reason.trim()
+    actionLoading.value = true
+    await approveReservation({
+      reservationNo: currentReservation.value.applyNo,
+      action: 'reject',
+      rejectReason: rejectForm.reason.trim(),
     })
-    showReject.value = false; loadData()
+    showReject.value = false
+    refreshAfterMutation()
   } catch (e: any) { alert(e.message || '操作失败') }
+  finally { actionLoading.value = false }
 }
-function revokeApproval(r: Reservation) {
+function revokeApproval(r: ReservationItem) {
   if (confirm(`确定撤销对「${r.labName}」的审批通过吗？`)) { r.status = 'pending'; r.statusName = '待审核'; r.approvedAt = undefined }
 }
 </script>
@@ -355,6 +416,8 @@ function revokeApproval(r: Reservation) {
 .reserve-card.card-approved { border-left:3px solid #27ae60 }
 .reserve-card.card-rejected { border-left:3px solid #e74c3c }
 .reserve-card.card-cancelled { border-left:3px solid #ccc; opacity:.65 }
+.reserve-card.card-checkedIn { border-left:3px solid #8e44ad }
+.reserve-card.card-absent { border-left:3px solid #e67e22 }
 
 .card-left { flex:1; padding:16px 20px; min-width:0 }
 .card-right { display:flex; flex-direction:column; align-items:flex-end; justify-content:center; gap:8px; padding:16px 20px; flex-shrink:0; min-width:130px; border-left:1px solid rgba(0,0,0,.04) }
@@ -365,6 +428,8 @@ function revokeApproval(r: Reservation) {
 .badge-approved { background:rgba(39,174,96,.1); color:#27ae60 }
 .badge-rejected { background:rgba(231,76,60,.1); color:#e74c3c }
 .badge-cancelled { background:rgba(0,0,0,.05); color:#999 }
+.badge-checkedIn { background:rgba(142,68,173,.1); color:#8e44ad }
+.badge-absent { background:rgba(230,126,34,.1); color:#e67e22 }
 .apply-no { font-size:13px; font-weight:600; color:#1a1a2e }
 .apply-time { font-size:12px; color:#999; margin-left:auto }
 
@@ -393,6 +458,7 @@ function revokeApproval(r: Reservation) {
 .btn-reject:hover { background:rgba(231,76,60,.05); border-color:#e74c3c }
 .btn-revoke { padding:8px 16px; border:1px solid rgba(0,0,0,.1); border-radius:8px; background:#fff; color:#888; font-size:12px; cursor:pointer }
 .btn-revoke:hover { border-color:#e74c3c; color:#e74c3c }
+.btn-approve:disabled,.btn-reject:disabled,.btn-revoke:disabled { opacity:.55; cursor:not-allowed; box-shadow:none }
 .final-text { font-size:12px; color:#bbb }
 
 .empty-state { display:flex; flex-direction:column; align-items:center; padding:60px 0; color:#ccc; gap:8px }
