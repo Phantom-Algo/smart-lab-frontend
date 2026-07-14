@@ -1,0 +1,32 @@
+# macOS
+.DS_Store
+._*
+
+# Unity 生成文件（最大头，不能提交）
+实验室3D仿真/Lab_Simulation_System/Library/
+实验室3D仿真/Lab_Simulation_System/Temp/
+实验室3D仿真/Lab_Simulation_System/Logs/
+实验室3D仿真/Lab_Simulation_System/UserSettings/
+实验室3D仿真/Lab_Simulation_System/obj/
+
+# 前端
+Intelligent_Experiment_System/Main_File/Main_UI/node_modules/
+Intelligent_Experiment_System/Main_File/Main_UI/dist/
+
+# 后端 Maven
+Intelligent_Experiment_System/Backend/smart-lab-backend/target/
+
+# Unity 大素材包（超过100MB，Gitee限制）
+*.unitypackage
+
+# Unity WebGL 构建产物（.data/.wasm 超100MB，需本地重新构建）
+Intelligent_Experiment_System/3D_Lab_Simulation_Environment/*/Build/*.data
+Intelligent_Experiment_System/3D_Lab_Simulation_Environment/*/Build/*.wasm
+
+# 前端 build 输出
+Intelligent_Experiment_System/Main_File/Main_UI/dist/
+
+*.unitypackage
+Intelligent_Experiment_System/3D_Lab_Simulation_Environment/*/Build/*.data
+Intelligent_Experiment_System/3D_Lab_Simulation_Environment/*/Build/*.wasm
+Intelligent_Experiment_System/Main_File/Main_UI/dist/
