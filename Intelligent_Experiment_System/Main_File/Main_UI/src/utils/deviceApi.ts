@@ -86,6 +86,36 @@ export function updateDevice(data: UpdateDeviceRequest): Promise<void> {
   return api.put<ApiResult<null>>(`/equipment/devices/${data.id}`, data).then(() => {})
 }
 
+// 设备入库（采购待入库 → 闲置）
+export function stockInDevice(id: number): Promise<void> {
+  return api.post<ApiResult<null>>(`/equipment/devices/${id}/stock-in`).then(() => {})
+}
+
+// 重新计算全部设备健康分
+export function recalculateHealth(): Promise<void> {
+  return api.post<ApiResult<null>>('/equipment/stats/health/recalculate').then(() => {})
+}
+
+// 查询设备健康分详情列表
+export interface DeviceHealthItem {
+  deviceId: number
+  deviceName: string
+  healthScore: number
+  grade: string
+  yearFactor: number
+  warrantyFactor: number
+  borrowFactor: number
+  repairFactor: number
+  costFactor: number
+  alertFactor: number
+  scrapAdvisory: boolean
+}
+
+export function getDeviceHealthScores(labId?: number): Promise<DeviceHealthItem[]> {
+  return api.get<ApiResult<DeviceHealthItem[]>>('/equipment/stats/health', { params: { labId } })
+    .then(res => res.data.data)
+}
+
 // ==================== 设备借用审批 ====================
 
 export type BorrowStatus = 'pending' | 'approved' | 'rejected' | 'cancelled'
@@ -105,6 +135,7 @@ export interface BorrowApplyItem {
   status: BorrowStatus
   statusName: string
   rejectReason?: string
+  purpose?: string
   pickupHint?: string
   createdAt: string
   approvedAt?: string
@@ -214,4 +245,55 @@ export function updateRepairStatus(data: UpdateRepairRequest): Promise<void> {
 // 管理员登记维修
 export function createRepair(data: CreateRepairRequest): Promise<number> {
   return api.post<ApiResult<number>>('/equipment/repairs', data).then(res => res.data.data)
+}
+
+// ==================== 设备借用全流程 ====================
+
+export interface BorrowLogItem {
+  id: number
+  applyId: number
+  deviceId: number
+  deviceName: string
+  borrowerId: number
+  borrowerName: string | null
+  outOperatorId: number | null
+  returnOperatorId: number | null
+  expectedReturnTime: string | null
+  actualOutTime: string | null
+  actualReturnTime: string | null
+  status: number          // 1借出中 2已归还 3逾期未还
+  statusDesc: string
+  isOverdue: number       // 0否 1是
+  returnRemark: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface BorrowLogPageQuery {
+  pageNum?: number
+  pageSize?: number
+}
+
+/** 领用登记：管理员确认设备已领出 */
+export function checkOutDevice(applyNo: string): Promise<BorrowLogItem> {
+  return api.post<ApiResult<BorrowLogItem>>(`/equipment/borrows/${applyNo}/check-out`)
+    .then(res => res.data.data)
+}
+
+/** 归还登记：管理员确认设备已归还 */
+export function checkInDevice(logId: number, returnRemark?: string): Promise<void> {
+  return api.post<ApiResult<null>>(`/equipment/borrows/${logId}/check-in`, { returnRemark })
+    .then(() => {})
+}
+
+/** 分页查询借用记录 */
+export function getBorrowLogs(query: BorrowLogPageQuery): Promise<PageResult<BorrowLogItem>> {
+  return api.get<ApiResult<PageResult<BorrowLogItem>>>('/equipment/borrows', { params: query })
+    .then(res => res.data.data)
+}
+
+/** 逾期检测 */
+export function detectOverdue(): Promise<void> {
+  return api.post<ApiResult<null>>('/equipment/borrows/detect-overdue')
+    .then(() => {})
 }

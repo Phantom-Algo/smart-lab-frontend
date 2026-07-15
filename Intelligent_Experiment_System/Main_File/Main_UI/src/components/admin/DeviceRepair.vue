@@ -212,7 +212,6 @@
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted } from 'vue'
 import api from '../../utils/api'
-import { isMockMode } from '../../stores/authStore'
 
 type RepairStatus = 'pending' | 'processing' | 'fixed' | 'accepted' | 'cancelled'
 
@@ -224,76 +223,42 @@ interface Repair {
   status: RepairStatus; statusName: string; totalCost: number; costItems: CostItem[]
 }
 
-const MOCK_REPAIRS: Repair[] = [
-  { id:1, repairNo:'WX-2024-001', deviceId:3, deviceName:'恒温培养箱', deviceNo:'EQ-2023-015',
-    labName:'生物培养实验室', reporterName:'孙老师', reporterType:2, reporterTypeName:'教师',
-    handlerName:null, faultDescription:'温控异常，显示温度与实际温度偏差超过±2°C，影响培养实验结果。',
-    reportTime:'2026-07-08 09:30', status:'pending', statusName:'待处理', totalCost:0, costItems:[] },
-  { id:2, repairNo:'WX-2024-002', deviceId:6, deviceName:'显微镜', deviceNo:'EQ-2022-005',
-    labName:'化学分析实验室', reporterName:'赵同学', reporterType:1, reporterTypeName:'学生',
-    handlerName:null, faultDescription:'物镜转换器卡滞，无法顺畅切换不同倍数物镜。',
-    reportTime:'2026-07-08 14:00', status:'pending', statusName:'待处理', totalCost:0, costItems:[] },
-  { id:3, repairNo:'WX-2024-003', deviceId:4, deviceName:'分光光度计', deviceNo:'EQ-2022-008',
-    labName:'物理光学实验室', reporterName:'李老师', reporterType:2, reporterTypeName:'教师',
-    handlerName:'王管理员', faultDescription:'光源老化严重，波长校准异常，测量结果偏差较大。',
-    reportTime:'2026-07-07 10:00', status:'processing', statusName:'维修中', totalCost:3200,
-    costItems:[{ amount:3200, remark:'厂商更换氘灯及钨灯光源', createdAt:'2026-07-08 11:00' }] },
-  { id:4, repairNo:'WX-2024-004', deviceId:1, deviceName:'高速离心机', deviceNo:'EQ-2024-001',
-    labName:'化学分析实验室', reporterName:'王同学', reporterType:1, reporterTypeName:'学生',
-    handlerName:'王管理员', faultDescription:'运行时异响，转速不稳定，无法达到设定转速。',
-    reportTime:'2026-07-06 16:00', status:'processing', statusName:'维修中', totalCost:0, costItems:[] },
-  { id:5, repairNo:'WX-2024-005', deviceId:7, deviceName:'服务器机柜', deviceNo:'EQ-2023-020',
-    labName:'计算机综合实验室', reporterName:'周老师', reporterType:2, reporterTypeName:'教师',
-    handlerName:'王管理员', faultDescription:'散热风扇故障，机柜内温度过高报警。',
-    reportTime:'2026-07-05 08:00', status:'fixed', statusName:'已修复', totalCost:1500,
-    costItems:[{ amount:1500, remark:'更换散热风扇模块×2', createdAt:'2026-07-05 16:00' }] },
-  { id:6, repairNo:'WX-2024-006', deviceId:2, deviceName:'数字示波器', deviceNo:'EQ-2024-002',
-    labName:'物理光学实验室', reporterName:'张同学', reporterType:1, reporterTypeName:'学生',
-    handlerName:'王管理员', faultDescription:'屏幕显示异常，出现竖条纹。',
-    reportTime:'2026-07-04 11:00', status:'accepted', statusName:'已验收', totalCost:800,
-    costItems:[{ amount:800, remark:'更换显示屏排线', createdAt:'2026-07-04 15:00' }] },
-  { id:7, repairNo:'WX-2024-007', deviceId:5, deviceName:'电子天平', deviceNo:'EQ-2024-003',
-    labName:'化学分析实验室', reporterName:'陈同学', reporterType:1, reporterTypeName:'学生',
-    handlerName:null, faultDescription:'称量数值漂移，零点不稳定。',
-    reportTime:'2026-07-03 10:00', status:'cancelled', statusName:'已取消', totalCost:0, costItems:[] },
-]
-
 const repairs = ref<Repair[]>([])
 
 async function loadData() {
-  if (isMockMode.value) { repairs.value = [...MOCK_REPAIRS]; return }
   try {
     const res = await api.get('/equipment/repairs', { params: { pageNum: 1, pageSize: 100 } })
-    if (res.data?.data?.records?.length) {
-      repairs.value = res.data.data.records.map((r: any) => ({
-        id: r.id, repairNo: r.repairNo || '', deviceId: r.deviceId || 0, deviceName: r.deviceName || '', deviceNo: r.deviceNo || '',
-        labName: r.labName || '', reporterName: r.reporterName || '', reporterType: r.reporterType || 1, reporterTypeName: r.reporterType === 2 ? '教师' : '学生',
-        handlerName: r.handlerName || null, faultDescription: r.faultDescription || r.faultDesc || '', reportTime: r.reportTime || '',
-        status: mapRepairStatus(r.repairStatus ?? r.status), statusName: r.repairStatusDesc || r.statusName || '待处理',
-        totalCost: Number(r.totalCost || (r.costs || []).reduce((sum: number, item: any) => sum + Number(item.cost || 0), 0)),
-        costItems: (r.costItems || r.costs || []).map((item: any) => ({
-          amount: Number(item.amount || item.cost || 0),
-          remark: item.remark || '',
-          createdAt: item.createdAt || ''
-        }))
+    repairs.value = (res.data?.data?.records || []).map((r: any) => ({
+      id: r.id, repairNo: r.repairNo || '', deviceId: r.deviceId || 0, deviceName: r.deviceName || '', deviceNo: r.deviceNo || '',
+      labName: r.labName || '', reporterName: r.reporterName || '', reporterType: r.reporterType || 1, reporterTypeName: r.reporterType === 2 ? '教师' : '学生',
+      handlerName: r.handlerName || null, faultDescription: r.faultDescription || r.faultDesc || '', reportTime: r.reportTime || '',
+      status: mapRepairStatus(r.repairStatus ?? r.status), statusName: r.repairStatusDesc || r.statusName || '待处理',
+      totalCost: Number(r.totalCost || (r.costs || []).reduce((sum: number, item: any) => sum + Number(item.cost || 0), 0)),
+      costItems: (r.costItems || r.costs || []).map((item: any) => ({
+        amount: Number(item.amount || item.cost || 0),
+        remark: item.remark || '',
+        createdAt: item.createdAt || ''
       }))
-    } else repairs.value = [...MOCK_REPAIRS]
-  } catch { /* API 不可用，请检查后端服务 */ }
+    }))
+  } catch (e) { console.error('加载维修记录失败:', e) }
 }
 
-onMounted(() => loadData())
+const deviceOptions = ref<{ id: number; name: string; deviceNo: string }[]>([])
 
-const deviceOptions = [
-  { id:1, name:'高速离心机', deviceNo:'EQ-2024-001' },
-  { id:2, name:'数字示波器', deviceNo:'EQ-2024-002' },
-  { id:3, name:'恒温培养箱', deviceNo:'EQ-2023-015' },
-  { id:4, name:'分光光度计', deviceNo:'EQ-2022-008' },
-  { id:5, name:'电子天平', deviceNo:'EQ-2024-003' },
-  { id:6, name:'显微镜', deviceNo:'EQ-2022-005' },
-  { id:7, name:'服务器机柜', deviceNo:'EQ-2023-020' },
-]
+async function loadDevices() {
+  try {
+    const res = await api.get('/equipment/devices', { params: { pageNum: 1, pageSize: 200 } })
+    const records = res.data?.data?.records || []
+    deviceOptions.value = records
+      .filter((d: any) => d.deviceStatus !== 5)
+      .map((d: any) => ({ id: d.id, name: d.name || '', deviceNo: d.deviceNo || '' }))
+  } catch { deviceOptions.value = [] }
+}
 
-// 筛选 & 分页
+onMounted(() => {
+  loadData()
+  loadDevices()
+})
 const activeStatus = ref<RepairStatus | 'all'>('all')
 const searchNo = ref('')
 const pageNum = ref(1)
@@ -319,7 +284,8 @@ const pagedList = computed(() => filteredList.value.slice((pageNum.value - 1) * 
 
 const pendingCount = computed(() => repairs.value.filter(r => r.status === 'pending').length)
 const processingCount = computed(() => repairs.value.filter(r => r.status === 'processing').length)
-const todayNew = computed(() => repairs.value.filter(r => r.reportTime.startsWith('2026-07-09')).length)
+const todayStr = new Date().toISOString().slice(0, 10)
+const todayNew = computed(() => repairs.value.filter(r => r.reportTime.startsWith(todayStr)).length)
 const totalCost = computed(() => repairs.value.reduce((s, r) => s + r.totalCost, 0))
 
 // 操作
@@ -330,7 +296,6 @@ function mapRepairStatus(status: number | string): RepairStatus {
 }
 
 async function startRepair(r: Repair) {
-  if (isMockMode.value) { r.status = 'processing'; r.statusName = '维修中'; r.handlerName = '王管理员'; return }
   try {
     await api.post(`/equipment/repairs/${r.repairNo}/start`, {})
     await loadData()
@@ -338,18 +303,16 @@ async function startRepair(r: Repair) {
 }
 function cancelRepair(r: Repair) {
   if (!confirm('确定取消该维修单吗？')) return
-  if (!isMockMode.value) { alert('后端暂未提供取消维修单接口'); return }
-  r.status = 'cancelled'; r.statusName = '已取消'
+  // 后端暂未提供取消接口，仅前端标记
+  r.status = 'cancelled'; r.statusName = '已取消'; repairs.value = [...repairs.value]
 }
 async function markFixed(r: Repair) {
-  if (isMockMode.value) { r.status = 'fixed'; r.statusName = '已修复'; return }
   try {
     await api.post(`/equipment/repairs/${r.repairNo}/complete`, { repairDesc: '维修完成' })
     await loadData()
   } catch (e: any) { alert(e.message || '操作失败') }
 }
 async function acceptRepair(r: Repair) {
-  if (isMockMode.value) { r.status = 'accepted'; r.statusName = '已验收'; return }
   try {
     await api.post(`/equipment/repairs/${r.repairNo}/accept`)
     await loadData()
@@ -365,20 +328,14 @@ function openAddCost(r: Repair) { currentRepair.value = r; costForm.amount = 0; 
 async function doAddCost() {
   if (!currentRepair.value || !costForm.amount || costForm.amount <= 0) return
   const r = currentRepair.value
-  if (!isMockMode.value) {
-    try {
-      await api.post(`/equipment/repairs/${r.repairNo}/cost`, {
-        cost: costForm.amount,
-        remark: costForm.remark
-      })
-      showCost.value = false
-      await loadData()
-    } catch (e: any) { alert(e.message || '操作失败') }
-    return
-  }
-  r.costItems.push({ amount: costForm.amount, remark: costForm.remark, createdAt: '2026-07-09 ' + new Date().toTimeString().slice(0, 5) })
-  r.totalCost = r.costItems.reduce((s, c) => s + c.amount, 0)
-  showCost.value = false
+  try {
+    await api.post(`/equipment/repairs/${r.repairNo}/cost`, {
+      cost: costForm.amount,
+      remark: costForm.remark
+    })
+    showCost.value = false
+    await loadData()
+  } catch (e: any) { alert(e.message || '操作失败') }
 }
 
 // 登记维修弹窗
@@ -388,28 +345,16 @@ const canCreate = computed(() => createForm.deviceId > 0 && createForm.reporterN
 function openCreateDialog() { createForm.deviceId = 0; createForm.reporterName = ''; createForm.faultDescription = ''; createForm.initStatus = 'pending'; showCreate.value = true }
 async function doCreate() {
   if (!canCreate.value) return
-  const d = deviceOptions.find(d => d.id === createForm.deviceId)!
-  if (!isMockMode.value) {
-    try {
-      await api.post('/equipment/repairs', {
-        deviceId: createForm.deviceId,
-        faultDesc: createForm.faultDescription.trim()
-      })
-      showCreate.value = false
-      await loadData()
-    } catch (e: any) { alert(e.message || '操作失败') }
-    return
-  }
-  const statusLabels: Record<string, string> = { pending: '待处理', processing: '维修中', fixed: '已修复', accepted: '已验收', cancelled: '已取消' }
-  repairs.value.unshift({
-    id: Date.now(), repairNo: 'WX-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + String(repairs.value.length + 1).padStart(3, '0'),
-    deviceId: d.id, deviceName: d.name, deviceNo: d.deviceNo, labName:'未知实验室',
-    reporterName: createForm.reporterName.trim(), reporterType:1, reporterTypeName:'学生',
-    handlerName: createForm.initStatus !== 'pending' ? '王管理员' : null,
-    faultDescription: createForm.faultDescription.trim(), reportTime:'2026-07-09 ' + new Date().toTimeString().slice(0, 5),
-    status: createForm.initStatus, statusName: statusLabels[createForm.initStatus], totalCost:0, costItems:[]
-  })
-  showCreate.value = false
+  const d = deviceOptions.value.find(d => d.id === createForm.deviceId)
+  if (!d) { alert('请选择有效设备'); return }
+  try {
+    await api.post('/equipment/repairs', {
+      deviceId: createForm.deviceId,
+      faultDesc: createForm.faultDescription.trim()
+    })
+    showCreate.value = false
+    await loadData()
+  } catch (e: any) { alert(e.message || '操作失败') }
 }
 </script>
 

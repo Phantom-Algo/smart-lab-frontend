@@ -5,6 +5,16 @@
       <p>使用率、故障率、健康画像 · {{ currentMonth }}</p>
     </div>
 
+    <!-- 操作栏 -->
+    <div class="action-bar">
+      <span v-if="loadError" class="err-msg">⚠ 数据加载失败，请检查后端服务</span>
+      <span v-else-if="!dashboardData" class="loading-msg">加载中…</span>
+      <button class="act-btn" @click="loadData">🔄 刷新数据</button>
+      <button class="act-btn primary" :disabled="recalculating" @click="recalculateHealthScores">
+        {{ recalculating ? '计算中…' : '📊 重算健康分' }}
+      </button>
+    </div>
+
     <!-- 概览卡片 -->
     <div class="stats-row">
       <div class="stat-card" v-for="c in overviewCards" :key="c.label">
@@ -102,10 +112,16 @@
 
 <script setup lang="ts">
 import { computed, ref, onMounted } from 'vue'
-import { getDashboardStats, type DashboardStats } from '../../utils/dashboardApi'
+import { getDashboardStats, getDeviceUsageTop, getCostStats, type DashboardStats, type DeviceUsageItem } from '../../utils/dashboardApi'
+import { recalculateHealth, getDeviceHealthScores, type DeviceHealthItem } from '../../utils/deviceApi'
 
 const currentMonth = '2026年7月'
 const dashboardData = ref<DashboardStats | null>(null)
+const deviceUsageTop = ref<DeviceUsageItem[]>([])
+const monthlyCosts = ref<{ month: string; amount: number }[]>([])
+const healthScores = ref<DeviceHealthItem[]>([])
+const loadError = ref(false)
+const recalculating = ref(false)
 interface WarningDevice {
   id: number
   name: string
@@ -117,8 +133,50 @@ interface WarningDevice {
 }
 
 async function loadData() {
-  try { dashboardData.value = await getDashboardStats() } catch(e) { console.error(e) }
+  loadError.value = false
+  try {
+    const [data, usage, healthList] = await Promise.all([
+      getDashboardStats(),
+      getDeviceUsageTop(),
+      getDeviceHealthScores().catch(() => [] as DeviceHealthItem[]),
+    ])
+    dashboardData.value = data
+    deviceUsageTop.value = usage
+    healthScores.value = healthList
+
+    // 加载月度维修费用（近6个月）
+    const now = new Date()
+    const labels: string[] = []
+    const promises: Promise<any>[] = []
+    for (let i = 5; i >= 0; i--) {
+      const m = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      labels.push(String(m.getMonth() + 1).padStart(2, '0') + '月')
+      const start = new Date(m.getFullYear(), m.getMonth(), 1).toISOString()
+      const end = new Date(m.getFullYear(), m.getMonth() + 1, 0, 23, 59, 59).toISOString()
+      promises.push(getCostStats(start, end).then(r => r.totalCost).catch(() => 0))
+    }
+    const results = await Promise.all(promises)
+    monthlyCosts.value = labels.map((month, i) => ({ month, amount: results[i] }))
+  } catch(e) {
+    console.error('[DeviceStats] load error:', e)
+    loadError.value = true
+  }
 }
+
+async function recalculateHealthScores() {
+  recalculating.value = true
+  try {
+    await recalculateHealth()
+    alert('健康分重算完成')
+    await loadData()
+  } catch(e) {
+    console.error('[DeviceStats] recalculate error:', e)
+    alert('健康分重算失败')
+  } finally {
+    recalculating.value = false
+  }
+}
+
 onMounted(() => loadData())
 
 const overviewCards = computed(() => {
@@ -133,17 +191,14 @@ const overviewCards = computed(() => {
 })
 
 const usageTop5 = computed(() =>
-  (dashboardData.value?.labUsageList ?? []).slice(0, 5).map((item, i) => ({
-    name: item.name, rate: Math.round(item.count / Math.max(dashboardData.value?.totalDeviceCount ?? 1, 1) * 100), count: item.count,
+  deviceUsageTop.value.map((item, i) => ({
+    name: item.deviceName,
+    rate: item.usageRate,
+    count: item.borrowCount,
     color: ['#27ae60','#2ecc71','#f39c12','#1a73e8','#8e44ad'][i]
   }))
 )
 
-const monthlyCosts = computed(() =>
-  (dashboardData.value?.monthlyBorrowTrend ?? []).map(m => ({
-    month: m.month?.slice(5) ?? m.month, amount: m.count * 500
-  }))
-)
 const minCost = computed(() => monthlyCosts.value.length ? Math.min(...monthlyCosts.value.map(m => m.amount)) : 0)
 const maxCost = computed(() => monthlyCosts.value.length ? Math.max(...monthlyCosts.value.map(m => m.amount)) : 1)
 function costBarHeightPct(amount: number): number { return maxCost.value === minCost.value ? 100 : (amount - minCost.value) / (maxCost.value - minCost.value) * 85 + 15 }
@@ -166,7 +221,19 @@ const riskCount = computed(() => {
   return bd.filter(s => s.status === 4 || s.status === 5).reduce((s, i) => s + i.count, 0)
 })
 
-const warningDevices = computed<WarningDevice[]>(() => [])
+const warningDevices = computed<WarningDevice[]>(() => {
+  return healthScores.value
+    .filter(h => h.scrapAdvisory)
+    .map(h => ({
+      id: h.deviceId,
+      name: h.deviceName,
+      deviceNo: '',
+      purchasePrice: 0,
+      totalRepairCost: 0,
+      costRatio: 0,
+      healthScore: h.healthScore,
+    }))
+})
 </script>
 
 <style scoped>
@@ -174,6 +241,14 @@ const warningDevices = computed<WarningDevice[]>(() => [])
 .page-header { margin-bottom:18px }
 .page-header h2 { font-size:20px; font-weight:600; color:#1a1a2e; margin:0 }
 .page-header p { margin:4px 0 0; font-size:13px; color:#999 }
+.action-bar { display:flex; align-items:center; gap:10px; margin-bottom:16px; padding:10px 16px; background:rgba(255,255,255,.5); border-radius:10px; border:1px solid rgba(0,0,0,.04) }
+.err-msg { font-size:13px; color:#e74c3c; font-weight:500 }
+.loading-msg { font-size:13px; color:#999 }
+.act-btn { padding:8px 16px; border:1px solid rgba(0,0,0,.1); border-radius:8px; background:#fff; font-size:13px; color:#555; cursor:pointer; white-space:nowrap; transition:.15s }
+.act-btn:hover { border-color:#1a73e8; color:#1a73e8 }
+.act-btn.primary { background:linear-gradient(135deg,#1a73e8,#4a90d9); color:#fff; border:none }
+.act-btn.primary:hover { box-shadow:0 4px 12px rgba(26,115,232,.3) }
+.act-btn:disabled { opacity:.5; cursor:not-allowed }
 
 /* 概览卡片 */
 .stats-row { display:flex; gap:12px; margin-bottom:20px; flex-wrap:wrap }

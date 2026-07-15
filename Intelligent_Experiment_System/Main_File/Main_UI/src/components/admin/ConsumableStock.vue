@@ -15,10 +15,6 @@
     <div class="toolbar">
       <div class="toolbar-left">
         <input v-model="searchName" placeholder="搜索名称..." class="search-input" @keyup.enter="pageNum = 1" />
-        <select v-model="filterCat" class="tool-select">
-          <option value="">全部分类</option>
-          <option v-for="c in catOptions" :key="c.key" :value="c.key">{{ c.label }}</option>
-        </select>
       </div>
       <div class="toolbar-right">
         <span class="total-label">共 {{ filteredList.length }} 种耗材</span>
@@ -28,15 +24,13 @@
 
     <div class="data-table-wrap">
       <table class="data-table">
-        <thead><tr><th>编号</th><th>名称</th><th>分类</th><th>规格</th><th>单位</th><th>库存</th><th>安全库存</th><th>状态</th><th>操作</th></tr></thead>
+        <thead><tr><th>编号</th><th>名称</th><th>单位</th><th>库存</th><th>安全库存</th><th>状态</th><th>操作</th></tr></thead>
         <tbody>
           <tr v-for="item in pagedList" :key="item.id">
-            <td><code>{{ item.itemNo }}</code></td>
-            <td><span class="item-name">{{ item.name }}</span></td>
-            <td><span class="cat-tag" :class="'cat-' + item.category">{{ item.categoryName }}</span></td>
-            <td>{{ item.spec || '--' }}</td>
+            <td><code>{{ item.materialNo }}</code></td>
+            <td><span class="item-name">{{ item.materialName }}</span></td>
             <td>{{ item.unit }}</td>
-            <td><span :class="item.stock < item.safetyStock ? 'text-red' : ''">{{ item.stock }}</span></td>
+            <td><span :class="item.currentStock < item.safetyStock ? 'text-red' : ''">{{ item.currentStock }}</span></td>
             <td>{{ item.safetyStock }}</td>
             <td>
               <div class="stock-bar-wrap">
@@ -48,9 +42,10 @@
               <button class="row-btn" @click="openBatchDialog(item)">入库</button>
               <button class="row-btn" @click="viewBatches(item)">批次</button>
               <button class="row-btn" @click="openItemDialog(item)">编辑</button>
+              <button class="row-btn danger" @click="deleteItem(item)">删除</button>
             </td>
           </tr>
-          <tr v-if="pagedList.length === 0"><td colspan="9" class="empty-cell">暂无耗材数据</td></tr>
+          <tr v-if="pagedList.length === 0"><td colspan="7" class="empty-cell">暂无耗材数据</td></tr>
         </tbody>
       </table>
     </div>
@@ -72,24 +67,14 @@
             </div>
             <div class="modal-body">
               <div class="form-row-2">
-                <div class="form-g"><label>耗材编号 <span class="required">*</span></label><input v-model="itemForm.itemNo" class="form-input" :disabled="!!editingItemId" /></div>
-                <div class="form-g"><label>名称 <span class="required">*</span></label><input v-model="itemForm.name" class="form-input" /></div>
-              </div>
-              <div class="form-row-2">
-                <div class="form-g"><label>分类 <span class="required">*</span></label>
-                  <select v-model="itemForm.category" class="form-input"><option v-for="c in catOptions" :key="c.key" :value="c.key">{{ c.label }}</option></select>
-                </div>
+                <div class="form-g"><label>名称 <span class="required">*</span></label><input v-model="itemForm.materialName" class="form-input" /></div>
                 <div class="form-g"><label>单位 <span class="required">*</span></label><input v-model="itemForm.unit" class="form-input" placeholder="瓶/盒/包/支" /></div>
               </div>
-              <div class="form-row-2">
-                <div class="form-g"><label>规格</label><input v-model="itemForm.spec" class="form-input" placeholder="如 500ml/瓶" /></div>
-                <div class="form-g"><label>安全库存 <span class="required">*</span></label><input v-model.number="itemForm.safetyStock" type="number" class="form-input" min="0" /></div>
-              </div>
-              <div class="form-g"><label>描述</label><textarea v-model="itemForm.description" class="form-input form-textarea" rows="2" placeholder="可选" /></div>
+              <div class="form-g"><label>安全库存 <span class="required">*</span></label><input v-model.number="itemForm.safetyStock" type="number" class="form-input" min="0" /></div>
             </div>
             <div class="modal-footer">
               <button class="modal-btn cancel" @click="showItem = false">取消</button>
-              <button class="modal-btn primary" @click="saveItem" :disabled="!itemForm.name.trim()">保存</button>
+              <button class="modal-btn primary" @click="saveItem" :disabled="!itemForm.materialName.trim()">保存</button>
             </div>
           </div>
         </div>
@@ -102,23 +87,17 @@
         <div v-if="showBatchIn" class="modal-overlay" @click.self="showBatchIn = false">
           <div class="modal-panel">
             <div class="modal-header">
-              <h3>批次入库 - {{ batchTarget?.name }}</h3>
+              <h3>批次入库 - {{ batchTarget?.materialName }}</h3>
               <button class="modal-close" @click="showBatchIn = false"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
             </div>
             <div class="modal-body">
-              <div class="form-row-2">
-                <div class="form-g"><label>批次编号 <span class="required">*</span></label><input v-model="batchForm.batchNo" class="form-input" placeholder="如 B20240709-001" /></div>
-                <div class="form-g"><label>入库数量 <span class="required">*</span></label><input v-model.number="batchForm.quantity" type="number" class="form-input" min="1" /></div>
-              </div>
-              <div class="form-row-2">
-                <div class="form-g"><label>生产日期</label><input v-model="batchForm.productionDate" type="date" class="form-input" /></div>
-                <div class="form-g"><label>到期日期</label><input v-model="batchForm.expiryDate" type="date" class="form-input" /></div>
-              </div>
+              <div class="form-g"><label>入库数量 <span class="required">*</span></label><input v-model.number="batchForm.quantity" type="number" class="form-input" min="1" /></div>
+              <div class="form-g"><label>到期日期 <span class="required">*</span></label><input v-model="batchForm.expiryDate" type="date" class="form-input" /></div>
               <div class="form-g"><label>备注</label><input v-model="batchForm.remark" class="form-input" placeholder="可选" /></div>
             </div>
             <div class="modal-footer">
               <button class="modal-btn cancel" @click="showBatchIn = false">取消</button>
-              <button class="modal-btn primary" @click="saveBatch" :disabled="!batchForm.batchNo.trim() || !batchForm.quantity">确认入库</button>
+              <button class="modal-btn primary" @click="saveBatch" :disabled="!batchForm.quantity || !batchForm.expiryDate">确认入库</button>
             </div>
           </div>
         </div>
@@ -131,21 +110,21 @@
         <div v-if="showBatches && batchTarget" class="modal-overlay" @click.self="showBatches = false">
           <div class="modal-panel wide">
             <div class="modal-header">
-              <h3>批次记录 - {{ batchTarget.name }}</h3>
+              <h3>批次记录 - {{ batchTarget.materialName }}</h3>
               <button class="modal-close" @click="showBatches = false"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
             </div>
             <div class="modal-body">
-              <table class="mini-table" v-if="batchTarget.batches.length > 0">
-                <thead><tr><th>批次号</th><th>数量</th><th>生产日期</th><th>到期日</th><th>剩余</th><th>状态</th><th>入库时间</th></tr></thead>
+              <div v-if="batchLoading" class="empty-hint">加载中...</div>
+              <table class="mini-table" v-else-if="batchList.length > 0">
+                <thead><tr><th>批次号</th><th>入库数量</th><th>剩余</th><th>到期日</th><th>入库时间</th><th>状态</th></tr></thead>
                 <tbody>
-                  <tr v-for="b in batchTarget.batches" :key="b.batchNo">
+                  <tr v-for="b in batchList" :key="b.id">
                     <td><code>{{ b.batchNo }}</code></td>
                     <td>{{ b.quantity }}</td>
-                    <td>{{ b.productionDate || '--' }}</td>
-                    <td>{{ b.expiryDate || '--' }}</td>
                     <td>{{ b.remaining }}</td>
-                    <td><span class="batch-status" :class="batchStatusClass(b)">{{ batchStatusLabel(b) }}</span></td>
-                    <td>{{ b.entryDate }}</td>
+                    <td>{{ b.expiryDate || '--' }}</td>
+                    <td>{{ b.stockInTime?.replace('T', ' ').slice(0, 16) || '--' }}</td>
+                    <td><span class="batch-status" :class="batchStatusClass(b)">{{ b.batchStatusDesc || (b.batchStatus === 1 ? '在库' : b.batchStatus === 2 ? '已清空' : '报废') }}</span></td>
                   </tr>
                 </tbody>
               </table>
@@ -163,124 +142,154 @@
 
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted } from 'vue'
-import { getMaterialPage, type MaterialItem } from '../../utils/materialApi'
+import { getMaterialPage, createMaterial, updateMaterial, deleteMaterial, stockIn, getBatches, getMaterialDetail, type MaterialItem, type MaterialBatch, type StockInParams } from '../../utils/materialApi'
 
-interface Batch { batchNo: string; quantity: number; productionDate: string; expiryDate: string; remaining: number; entryDate: string }
-interface Item {
-  id: number; itemNo: string; name: string; category: string; categoryName: string
-  spec: string | null; unit: string; stock: number; safetyStock: number
-  description: string | null; batches: Batch[]
-}
-
-const catOptions = [
-  { key:'reagent', label:'试剂' }, { key:'glassware', label:'玻璃器皿' },
-  { key:'protective', label:'防护用品' }, { key:'other', label:'其他' },
-]
-const catNames: Record<string, string> = Object.fromEntries(catOptions.map(c => [c.key, c.label]))
-
-const items = ref<Item[]>([])
+const items = ref<MaterialItem[]>([])
 
 async function loadMaterials() {
   try {
     const res = await getMaterialPage({ pageNum: 1, pageSize: 200 })
-    items.value = res.records.map(m => ({
-      id: m.id, itemNo: m.materialNo, name: m.materialName,
-      category: 'other', categoryName: '耗材',
-      spec: null, unit: m.unit, stock: m.currentStock, safetyStock: m.safetyStock,
-      description: null, batches: []
-    }))
-  } catch { /* API 不可用 */ }
+    items.value = res.records
+  } catch { /* 请求失败 */ }
 }
 onMounted(() => { loadMaterials() })
 
 const searchName = ref('')
-const filterCat = ref('')
 const pageNum = ref(1)
 const pageSize = 8
 
 const filteredList = computed(() => {
   let list = items.value
-  if (searchName.value) list = list.filter(i => i.name.includes(searchName.value))
-  if (filterCat.value) list = list.filter(i => i.category === filterCat.value)
+  if (searchName.value) {
+    const kw = searchName.value.toLowerCase()
+    list = list.filter(i => i.materialName.toLowerCase().includes(kw) || i.materialNo.toLowerCase().includes(kw))
+  }
   return list
 })
 const totalPages = computed(() => Math.ceil(filteredList.value.length / pageSize) || 1)
 const pagedList = computed(() => filteredList.value.slice((pageNum.value - 1) * pageSize, pageNum.value * pageSize))
 
-const totalStock = computed(() => items.value.reduce((s, i) => s + i.stock, 0))
-const lowStockCount = computed(() => items.value.filter(i => i.stock < i.safetyStock).length)
-const nearExpiryCount = computed(() => {
-  let count = 0
-  items.value.forEach(i => i.batches.forEach(b => {
-    if (b.expiryDate && new Date(b.expiryDate) <= new Date(Date.now() + 90*86400000)) count++
-  }))
-  return count
-})
+const totalStock = computed(() => items.value.reduce((s, i) => s + i.currentStock, 0))
+const lowStockCount = computed(() => items.value.filter(i => i.currentStock < i.safetyStock).length)
+const nearExpiryCount = computed(() => items.value.filter(i => i.earliestExpiryDate && new Date(i.earliestExpiryDate) <= new Date(Date.now() + 90*86400000)).length)
 
-function stockLevel(i: Item): string {
-  if (i.stock < i.safetyStock) return 'danger'
-  if (i.stock < i.safetyStock * 2) return 'warn'
+type StockLevel = 'danger' | 'warn' | 'ok'
+function stockLevel(i: MaterialItem): StockLevel {
+  if (i.currentStock < i.safetyStock) return 'danger'
+  if (i.currentStock < i.safetyStock * 2) return 'warn'
   return 'ok'
 }
-function stockPct(i: Item): number { return Math.min(100, Math.round(i.stock / (i.safetyStock * 2) * 100)) }
-function stockLabel(i: Item): string { return i.stock < i.safetyStock ? '不足' : i.stock < i.safetyStock * 2 ? '偏低' : '充足' }
+function stockPct(i: MaterialItem): number { return Math.min(100, Math.round(i.currentStock / Math.max(i.safetyStock * 2, 1) * 100)) }
+function stockLabel(i: MaterialItem): string { return i.currentStock < i.safetyStock ? '不足' : i.currentStock < i.safetyStock * 2 ? '偏低' : '充足' }
 
-function batchStatusClass(b: Batch): string {
+function batchStatusClass(b: MaterialBatch): string {
+  if (b.batchStatus === 3) return 'expired'
   if (!b.expiryDate) return 'ok'
   const d = new Date(b.expiryDate)
   if (d <= new Date()) return 'expired'
   if (d <= new Date(Date.now() + 90*86400000)) return 'warn'
   return 'ok'
 }
-function batchStatusLabel(b: Batch): string {
-  if (!b.expiryDate) return '正常'
-  const d = new Date(b.expiryDate)
-  if (d <= new Date()) return '已过期'
-  if (d <= new Date(Date.now() + 90*86400000)) return '临期'
-  return '正常'
-}
 
 // 耗材编辑弹窗
 const showItem = ref(false)
 const editingItemId = ref(0)
-const itemForm = reactive({ itemNo:'', name:'', category:'reagent', unit:'瓶', spec:'', safetyStock:10, description:'' })
-function openItemDialog(item?: Item) {
-  if (item) { editingItemId.value = item.id; itemForm.itemNo = item.itemNo; itemForm.name = item.name; itemForm.category = item.category; itemForm.unit = item.unit; itemForm.spec = item.spec || ''; itemForm.safetyStock = item.safetyStock; itemForm.description = item.description || '' }
-  else { editingItemId.value = 0; itemForm.itemNo = 'CON-' + String(items.value.length + 1).padStart(3,'0'); itemForm.name = ''; itemForm.category = 'reagent'; itemForm.unit = '瓶'; itemForm.spec = ''; itemForm.safetyStock = 10; itemForm.description = '' }
+const itemForm = reactive({ materialName: '', unit: '瓶', safetyStock: 10 })
+function openItemDialog(item?: MaterialItem) {
+  if (item) {
+    editingItemId.value = item.id
+    itemForm.materialName = item.materialName
+    itemForm.unit = item.unit
+    itemForm.safetyStock = item.safetyStock
+  } else {
+    editingItemId.value = 0
+    itemForm.materialName = ''
+    itemForm.unit = '瓶'
+    itemForm.safetyStock = 10
+  }
   showItem.value = true
 }
-function saveItem() {
-  if (!itemForm.name.trim()) return
-  if (editingItemId.value) {
-    const i = items.value.find(i => i.id === editingItemId.value)
-    if (i) { i.name = itemForm.name.trim(); i.category = itemForm.category; i.categoryName = catNames[itemForm.category]; i.unit = itemForm.unit; i.spec = itemForm.spec || null; i.safetyStock = itemForm.safetyStock; i.description = itemForm.description || null }
-  } else {
-    items.value.unshift({ id:Date.now(), itemNo:itemForm.itemNo, name:itemForm.name.trim(), category:itemForm.category, categoryName:catNames[itemForm.category], spec:itemForm.spec||null, unit:itemForm.unit, stock:0, safetyStock:itemForm.safetyStock, description:itemForm.description||null, batches:[] })
+async function saveItem() {
+  if (!itemForm.materialName.trim()) return
+  try {
+    if (editingItemId.value) {
+      await updateMaterial(editingItemId.value, {
+        materialName: itemForm.materialName.trim(),
+        unit: itemForm.unit,
+        safetyStock: itemForm.safetyStock,
+      })
+    } else {
+      await createMaterial({
+        materialName: itemForm.materialName.trim(),
+        labId: 1, // 默认实验室，用户可后续调整
+        unit: itemForm.unit,
+        safetyStock: itemForm.safetyStock,
+      })
+    }
+    showItem.value = false
+    await loadMaterials()
+  } catch (e: any) {
+    alert(e.message || '操作失败')
   }
-  showItem.value = false
 }
 
-// 批次入库弹窗
+// 删除
+async function deleteItem(item: MaterialItem) {
+  if (!confirm(`确定删除耗材「${item.materialName}」吗？`)) return
+  try {
+    await deleteMaterial(item.id)
+    await loadMaterials()
+  } catch (e: any) {
+    alert(e.message || '删除失败')
+  }
+}
+
+// 批次入库
 const showBatchIn = ref(false)
-const batchTarget = ref<Item | null>(null)
-const batchForm = reactive({ batchNo:'', quantity:0, productionDate:'', expiryDate:'', remark:'' })
-function openBatchDialog(item: Item) {
+const batchTarget = ref<MaterialItem | null>(null)
+const batchForm = reactive({ quantity: 0, expiryDate: '', remark: '' })
+function openBatchDialog(item: MaterialItem) {
   batchTarget.value = item
-  batchForm.batchNo = 'B' + new Date().toISOString().slice(0,10).replace(/-/g,'') + '-' + String(item.batches.length + 1).padStart(3,'0')
-  batchForm.quantity = 0; batchForm.productionDate = ''; batchForm.expiryDate = ''; batchForm.remark = ''
+  batchForm.quantity = 0
+  batchForm.expiryDate = ''
+  batchForm.remark = ''
   showBatchIn.value = true
 }
-function saveBatch() {
-  if (!batchTarget.value || !batchForm.batchNo.trim() || !batchForm.quantity) return
-  const item = batchTarget.value
-  item.batches.unshift({ batchNo:batchForm.batchNo.trim(), quantity:batchForm.quantity, productionDate:batchForm.productionDate, expiryDate:batchForm.expiryDate, remaining:batchForm.quantity, entryDate:'2026-07-09 ' + new Date().toTimeString().slice(0,5) })
-  item.stock = item.batches.reduce((s, b) => s + b.remaining, 0)
-  showBatchIn.value = false
+async function saveBatch() {
+  if (!batchTarget.value || !batchForm.quantity || !batchForm.expiryDate) return
+  try {
+    const params: StockInParams = {
+      materialId: batchTarget.value.id,
+      quantity: batchForm.quantity,
+      expiryDate: batchForm.expiryDate,
+      remark: batchForm.remark || undefined,
+    }
+    await stockIn(params)
+    showBatchIn.value = false
+    await loadMaterials()
+  } catch (e: any) {
+    alert(e.message || '入库失败')
+  }
 }
 
 // 批次记录弹窗
 const showBatches = ref(false)
-function viewBatches(item: Item) { batchTarget.value = item; showBatches.value = true }
+const batchList = ref<MaterialBatch[]>([])
+const batchLoading = ref(false)
+async function viewBatches(item: MaterialItem) {
+  batchTarget.value = item
+  showBatches.value = true
+  batchLoading.value = true
+  batchList.value = []
+  try {
+    const detail = await getMaterialDetail(item.id)
+    batchList.value = detail.batches || []
+  } catch {
+    batchList.value = []
+  } finally {
+    batchLoading.value = false
+  }
+}
 </script>
 
 <style scoped>
@@ -299,20 +308,14 @@ function viewBatches(item: Item) { batchTarget.value = item; showBatches.value =
 .toolbar-left { display:flex; align-items:center; gap:8px }
 .toolbar-right { display:flex; align-items:center; gap:12px }
 .search-input { padding:8px 12px; border:1px solid rgba(0,0,0,.1); border-radius:10px; font-size:13px; outline:none; width:150px; background:rgba(255,255,255,.7) }
-.tool-select { padding:8px 12px; border:1px solid rgba(0,0,0,.1); border-radius:10px; font-size:13px; background:rgba(255,255,255,.7); outline:none; cursor:pointer }
 .total-label { font-size:13px; color:#999 }
 .add-btn { padding:8px 18px; border:none; border-radius:10px; background:linear-gradient(135deg,#1a73e8,#4a90d9); color:#fff; font-size:13px; font-weight:500; cursor:pointer }
 
 .data-table-wrap { background:rgba(255,255,255,.5); border-radius:12px; border:1px solid rgba(0,0,0,.04); overflow-x:auto }
-.data-table { width:100%; border-collapse:collapse; min-width:860px }
+.data-table { width:100%; border-collapse:collapse; min-width:700px }
 .data-table th,.data-table td { padding:11px 14px; text-align:left; font-size:13px; border-bottom:1px solid rgba(0,0,0,.04); white-space:nowrap }
 .data-table th { font-weight:600; color:#666; background:rgba(0,0,0,.015); font-size:12px }
 .item-name { font-weight:600; color:#1a1a2e }
-.cat-tag { padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600 }
-.cat-reagent { background:rgba(142,68,173,.1); color:#8e44ad }
-.cat-glassware { background:rgba(26,115,232,.1); color:#1557b0 }
-.cat-protective { background:rgba(39,174,96,.1); color:#1e8449 }
-.cat-other { background:rgba(0,0,0,.05); color:#888 }
 .text-red { color:#e74c3c; font-weight:600 }
 
 .stock-bar-wrap { display:flex; align-items:center; gap:6px }
@@ -324,6 +327,7 @@ function viewBatches(item: Item) { batchTarget.value = item; showBatches.value =
 .action-cell { display:flex; gap:4px; flex-wrap:wrap }
 .row-btn { padding:4px 10px; border:1px solid rgba(0,0,0,.1); border-radius:6px; background:#fff; font-size:11px; color:#555; cursor:pointer; white-space:nowrap }
 .row-btn:hover { border-color:#1a73e8; color:#1a73e8 }
+.row-btn.danger:hover { border-color:#e74c3c; color:#e74c3c }
 .empty-cell { text-align:center; color:#ccc; padding:40px }
 code { font-size:11px; background:rgba(0,0,0,.03); padding:1px 6px; border-radius:3px; color:#888 }
 
@@ -364,7 +368,6 @@ code { font-size:11px; background:rgba(0,0,0,.03); padding:1px 6px; border-radiu
 .form-input { padding:10px 14px; border:1px solid rgba(0,0,0,.1); border-radius:10px; font-size:14px; color:#333; outline:none; background:rgba(255,255,255,.7); transition:.15s; font-family:inherit; width:100%; box-sizing:border-box }
 .form-input:focus { border-color:#1a73e8 }
 .form-input:disabled { background:rgba(0,0,0,.03); color:#999 }
-.form-textarea { resize:vertical; min-height:60px }
 .modal-fade-enter-active { transition:all .2s ease }
 .modal-fade-leave-active { transition:all .15s ease }
 .modal-fade-enter-from,.modal-fade-leave-to { opacity:0 }
