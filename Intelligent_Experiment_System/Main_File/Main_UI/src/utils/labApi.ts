@@ -386,6 +386,51 @@ export interface ReservationStats {
   approvalRate: number
 }
 
+export interface LabUsageHotLab {
+  labId: number
+  labName: string
+  labTypeName: string
+  campus: string | null
+  building: string | null
+  floor: number | null
+  roomNo: string | null
+  reservationCount: number
+}
+
+export interface LabUsageMonthlyTrend {
+  month: string
+  count: number
+}
+
+export interface LabUsageTimeSlotDistribution {
+  slot: string
+  count: number
+  percent: number
+}
+
+export interface LabUsageTypeDistribution {
+  labTypeName: string
+  count: number
+  percent: number
+}
+
+export interface LabUsageStatusDistribution {
+  status: number
+  statusName: string
+  count: number
+}
+
+export interface LabUsageStats {
+  todayReservationCount: number
+  weekReservationCount: number
+  monthReservationCount: number
+  hotLabs: LabUsageHotLab[]
+  monthlyTrend: LabUsageMonthlyTrend[]
+  timeSlotDistribution: LabUsageTimeSlotDistribution[]
+  labTypeDistribution: LabUsageTypeDistribution[]
+  statusDistribution: LabUsageStatusDistribution[]
+}
+
 interface ApiReservationResponse {
   id?: number
   reservationNo?: string
@@ -464,6 +509,11 @@ export function getReservationPage(query: ReservationPageQuery): Promise<PageRes
 export function getReservationStats(): Promise<ReservationStats> {
   return api.get<ApiResult<ApiReservationStatsResponse>>('/lab-management/reservations/stats')
     .then(res => mapReservationStats(res.data.data))
+}
+
+export function getLabUsageStats(): Promise<LabUsageStats> {
+  return api.get<ApiResult<LabUsageStats>>('/lab-management/reservations/usage-stats')
+    .then(res => res.data.data)
 }
 
 // 审批预约申请

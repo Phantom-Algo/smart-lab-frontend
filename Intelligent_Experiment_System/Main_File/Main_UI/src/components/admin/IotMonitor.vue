@@ -148,13 +148,29 @@
           <p>当前筛选条件下暂无监测实验室</p>
         </div>
 
-        <div v-else class="lab-card-grid">
-          <article
-            v-for="lab in labs"
-            :key="lab.labId"
-            class="lab-card"
-            :class="cardStatusClass(lab.monitorStatus)"
-          >
+        <template v-else>
+          <div class="chart-legend-panel" aria-label="折线颜色说明">
+            <span class="legend-item">
+              <i class="legend-line safe"></i>
+              绿色：处于任一安全阈值范围内
+            </span>
+            <span class="legend-item">
+              <i class="legend-line danger"></i>
+              红色：超出全部安全阈值范围
+            </span>
+            <span class="legend-item">
+              <i class="legend-line gap"></i>
+              灰色虚线：相邻数据间隔超过 5 分钟
+            </span>
+          </div>
+
+          <div class="lab-card-grid">
+            <article
+              v-for="lab in labs"
+              :key="lab.labId"
+              class="lab-card"
+              :class="cardStatusClass(lab.monitorStatus)"
+            >
             <div class="lab-card-head">
               <div class="lab-card-title">
                 <span class="status-dot" :class="statusDotClass(lab.monitorStatus)"></span>
@@ -218,10 +234,14 @@
                       :y2="line.y"
                       class="boundary-line"
                     />
-                    <polyline
-                      v-if="polylinePoints(indicator)"
-                      :points="polylinePoints(indicator)"
-                      :class="['chart-line', hasAlertPoint(indicator) ? 'danger' : 'normal']"
+                    <line
+                      v-for="segment in chartSegments(indicator)"
+                      :key="segment.key"
+                      :x1="segment.x1"
+                      :y1="segment.y1"
+                      :x2="segment.x2"
+                      :y2="segment.y2"
+                      :class="['chart-line-segment', segment.tone]"
                     />
                     <circle
                       v-for="point in chartPoints(indicator)"
@@ -229,7 +249,7 @@
                       :cx="point.x"
                       :cy="point.y"
                       r="2"
-                      :class="['chart-point', point.status === 2 ? 'danger' : 'normal']"
+                      :class="['chart-point', point.tone]"
                     />
                   </svg>
                   <span class="chart-time">{{ formatTime(indicator.detectedAt) }}</span>
@@ -237,8 +257,9 @@
               </div>
               <div v-if="lab.indicators.length === 0" class="card-empty">该实验室类型暂未配置安全指标</div>
             </div>
-          </article>
-        </div>
+            </article>
+          </div>
+        </template>
       </main>
     </div>
 
@@ -272,43 +293,18 @@
               </div>
 
               <div v-if="selectedDetailIndicator" class="detail-chart-panel">
-                <div class="detail-chart-meta">
-                  <strong>{{ formatMetricValue(selectedDetailIndicator.latestValue, selectedDetailIndicator.unit) }}</strong>
-                  <span>{{ selectedDetailIndicator.latestStatusDesc }} · {{ formatSafeRange(selectedDetailIndicator.safeRange, selectedDetailIndicator.unit) }}</span>
+                <div class="detail-chart-top">
+                  <div class="detail-chart-meta">
+                    <strong>{{ displayIndicatorName(selectedDetailIndicator) }}趋势</strong>
+                    <span>当前 {{ formatMetricValue(selectedDetailIndicator.latestValue, selectedDetailIndicator.unit) }} · 正常范围 {{ formatSafeRange(selectedDetailIndicator.safeRange, selectedDetailIndicator.unit) }}</span>
+                  </div>
+                  <div class="chart-legend compact" aria-label="折线颜色说明">
+                    <span class="legend-item"><i class="legend-line safe"></i>安全范围内</span>
+                    <span class="legend-item"><i class="legend-line danger"></i>超出阈值</span>
+                    <span class="legend-item"><i class="legend-line gap"></i>数据中断</span>
+                  </div>
                 </div>
-                <svg class="detail-chart" :viewBox="chartViewBox" preserveAspectRatio="none">
-                  <rect
-                    v-for="(band, index) in safeBands(selectedDetailIndicator)"
-                    :key="'detail-band-' + index"
-                    :x="0"
-                    :y="band.y"
-                    :width="chartWidth"
-                    :height="band.height"
-                    class="safe-band"
-                  />
-                  <line
-                    v-for="(line, index) in boundaryLines(selectedDetailIndicator)"
-                    :key="'detail-line-' + index"
-                    :x1="0"
-                    :x2="chartWidth"
-                    :y1="line.y"
-                    :y2="line.y"
-                    class="boundary-line"
-                  />
-                  <polyline
-                    v-if="polylinePoints(selectedDetailIndicator)"
-                    :points="polylinePoints(selectedDetailIndicator)"
-                    :class="['chart-line', hasAlertPoint(selectedDetailIndicator) ? 'danger' : 'normal']"
-                  />
-                  <circle
-                    v-for="point in chartPoints(selectedDetailIndicator)"
-                    :key="'detail-' + point.key"
-                    :cx="point.x"
-                    :cy="point.y"
-                    r="2.2"
-                    :class="['chart-point', point.status === 2 ? 'danger' : 'normal']"
-                  />
-                </svg>
+                <div ref="detailChartRef" class="detail-chart"></div>
               </div>
 
               <div class="log-table-wrap">
@@ -362,7 +358,23 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { CustomChart, LineChart, ScatterChart } from 'echarts/charts'
+import {
+  GraphicComponent,
+  GridComponent,
+  MarkAreaComponent,
+  MarkLineComponent,
+  TooltipComponent,
+} from 'echarts/components'
+import { graphic, init, use } from 'echarts/core'
+import type {
+  CustomSeriesRenderItemAPI,
+  CustomSeriesRenderItemParams,
+  EChartsOption,
+  EChartsType,
+} from 'echarts'
+import { CanvasRenderer } from 'echarts/renderers'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import {
   getIotMonitorLogs,
   getIotMonitorOverview,
@@ -377,6 +389,18 @@ import {
   type LabTypeOption,
 } from '../../utils/iotMonitorApi'
 
+use([
+  CanvasRenderer,
+  CustomChart,
+  LineChart,
+  ScatterChart,
+  GridComponent,
+  TooltipComponent,
+  MarkAreaComponent,
+  MarkLineComponent,
+  GraphicComponent,
+])
+
 interface FilterState {
   campus: string
   building: string
@@ -388,7 +412,61 @@ interface ChartPoint {
   key: string
   x: number
   y: number
+  value: number
+  detectedAt: string | null
   status: number
+  tone: ChartTone
+}
+
+type ChartTone = 'safe' | 'danger' | 'gap'
+
+interface ChartSegment {
+  key: string
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+  tone: ChartTone
+}
+
+interface DetailChartPoint {
+  key: string
+  time: number
+  value: number
+  detectedAt: string
+  status: number
+  tone: ChartTone
+}
+
+interface CompressedDetailPoint extends DetailChartPoint {
+  displayX: number
+  forceDateLabel: boolean
+}
+
+interface CompressedGap {
+  key: string
+  labelX: number
+  startTime: number
+  endTime: number
+  durationMs: number
+  crossedDay: boolean
+}
+
+interface DetailChartSegment {
+  key: string
+  startX: number
+  startValue: number
+  endX: number
+  endValue: number
+  tone: ChartTone
+}
+
+interface CompressedDetailAxis {
+  points: CompressedDetailPoint[]
+  segments: DetailChartSegment[]
+  gaps: CompressedGap[]
+  axisLabels: Map<number, string>
+  maxDisplayX: number
 }
 
 interface SafeBand {
@@ -400,10 +478,23 @@ interface BoundaryLine {
   y: number
 }
 
+interface NormalizedSafeRange {
+  lower: number
+  upper: number
+}
+
 const chartWidth = 260
 const chartHeight = 48
 const chartPadding = 4
 const chartViewBox = `0 0 ${chartWidth} ${chartHeight}`
+const dataGapThresholdMs = 15 * 1000
+const thresholdEpsilon = 1e-7
+const safeLineColor = '#1fa85f'
+const dangerLineColor = '#ef4444'
+const gapLineColor = '#9aa6bc'
+const safeAreaColor = 'rgba(31, 168, 95, .12)'
+const thresholdLineColor = 'rgba(31, 168, 95, .45)'
+const compressedGapSlotWidth = 3
 
 // 轮询间隔时间，单位为毫秒 
 const pollIntervalMs = 3000
@@ -443,6 +534,9 @@ const detailPage = ref(1)
 const detailPageSize = 8
 const detailTotal = ref(0)
 const detailLoading = ref(false)
+const detailChartRef = ref<HTMLDivElement | null>(null)
+let detailChart: EChartsType | null = null
+let detailChartResizeObserver: ResizeObserver | null = null
 
 const labs = computed(() => overview.value?.labs ?? [])
 
@@ -476,6 +570,20 @@ watch(() => filterForm.campus, () => {
   }
 })
 
+watch(selectedDetailIndicator, () => {
+  if (showDetail.value) {
+    void renderDetailChart()
+  }
+}, { deep: true })
+
+watch(showDetail, visible => {
+  if (visible) {
+    void renderDetailChart()
+  } else {
+    disposeDetailChart()
+  }
+})
+
 onMounted(async () => {
   await Promise.all([loadFilterOptions(), loadLabTypes()])
   await refreshOverview()
@@ -486,6 +594,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (pollTimer) window.clearInterval(pollTimer)
+  disposeDetailChart()
 })
 
 async function loadFilterOptions() {
@@ -559,6 +668,7 @@ async function openDetail(lab: IotMonitorLabCard) {
   selectedDetailDataName.value = lab.indicators[0]?.dataName ?? ''
   detailPage.value = 1
   showDetail.value = true
+  await renderDetailChart()
   await loadDetailLogs()
 }
 
@@ -571,6 +681,7 @@ function closeDetail() {
 async function selectDetailIndicator(dataName: string) {
   selectedDetailDataName.value = dataName
   detailPage.value = 1
+  await renderDetailChart()
   await loadDetailLogs()
 }
 
@@ -597,6 +708,551 @@ async function loadDetailLogs() {
   }
 }
 
+async function renderDetailChart() {
+  await nextTick()
+  const indicator = selectedDetailIndicator.value
+  const el = detailChartRef.value
+  if (!showDetail.value || !indicator || !el) return
+
+  const chart = ensureDetailChart(el)
+  chart.setOption(buildDetailChartOption(indicator), true)
+  chart.resize()
+}
+
+function ensureDetailChart(el: HTMLDivElement) {
+  if (detailChart && detailChart.getDom() === el) return detailChart
+  disposeDetailChart()
+  detailChart = init(el, undefined, { renderer: 'canvas' })
+  detailChartResizeObserver = new ResizeObserver(() => {
+    detailChart?.resize()
+  })
+  detailChartResizeObserver.observe(el)
+  return detailChart
+}
+
+function disposeDetailChart() {
+  detailChartResizeObserver?.disconnect()
+  detailChartResizeObserver = null
+  detailChart?.dispose()
+  detailChart = null
+}
+
+function buildDetailChartOption(indicator: IotMonitorIndicator): EChartsOption {
+  const points = detailChartPoints(indicator)
+  const compressedAxis = buildCompressedDetailAxis(points, indicator)
+  const domain = chartDomain(indicator)
+  const unit = indicator.unit || ''
+  const safeAreas = detailSafeMarkAreas(indicator, domain)
+  const thresholdLines = detailThresholdMarkLines(indicator)
+
+  return {
+    animation: false,
+    grid: {
+      left: 46,
+      right: 32,
+      top: 20,
+      bottom: 52,
+      containLabel: true,
+    },
+    tooltip: {
+      trigger: 'item',
+      confine: true,
+      borderColor: '#dbe3ee',
+      borderWidth: 1,
+      backgroundColor: 'rgba(255, 255, 255, .96)',
+      textStyle: {
+        color: '#2f3a52',
+        fontSize: 12,
+      },
+      formatter: params => formatDetailTooltip(params, indicator),
+    },
+    xAxis: {
+      type: 'value',
+      min: 0,
+      max: Math.max(1, compressedAxis.maxDisplayX),
+      interval: 1,
+      axisLine: { lineStyle: { color: '#dbe3ee' } },
+      axisTick: { show: false },
+      splitLine: { show: false },
+      axisLabel: {
+        showMinLabel: true,
+        showMaxLabel: true,
+        hideOverlap: true,
+        color: '#71809a',
+        fontSize: 12,
+        lineHeight: 16,
+        margin: 14,
+        formatter: value => formatCompressedAxisLabel(Number(value), compressedAxis.axisLabels),
+      },
+    },
+    yAxis: {
+      type: 'value',
+      min: domain.min,
+      max: domain.max,
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: {
+        color: '#71809a',
+        formatter: value => `${trimNumber(Number(value))}${unit ? ` ${unit}` : ''}`,
+      },
+      splitLine: {
+        lineStyle: {
+          color: '#edf2f7',
+          width: 1,
+        },
+      },
+    },
+    series: [
+      {
+        name: '安全阈值',
+        type: 'line',
+        data: compressedAxis.points.map(point => [point.displayX, point.value]),
+        silent: true,
+        symbol: 'none',
+        lineStyle: { opacity: 0 },
+        itemStyle: { opacity: 0 },
+        markArea: safeAreas.length ? {
+          silent: true,
+          itemStyle: { color: safeAreaColor },
+          data: safeAreas,
+        } : undefined,
+        markLine: thresholdLines.length ? {
+          silent: true,
+          symbol: 'none',
+          lineStyle: {
+            color: thresholdLineColor,
+            type: 'dashed',
+            width: 1.2,
+          },
+          label: {
+            color: safeLineColor,
+            fontSize: 11,
+            fontWeight: 700,
+            formatter: (params: any) => `${params.name} ${trimNumber(Number(params.value))}${unit}`,
+          },
+          data: thresholdLines,
+        } : undefined,
+        z: 1,
+      },
+      {
+        name: '趋势线',
+        type: 'custom',
+        coordinateSystem: 'cartesian2d',
+        data: compressedAxis.segments.map((segment, index) => [
+          segment.startX,
+          segment.startValue,
+          segment.endX,
+          segment.endValue,
+          index,
+        ]),
+        renderItem: (params, api) => renderDetailSegment(params, api, compressedAxis.segments),
+        silent: true,
+        z: 5,
+      },
+      {
+        name: '中断标注',
+        type: 'custom',
+        coordinateSystem: 'cartesian2d',
+        data: compressedAxis.gaps.map((gap, index) => [gap.labelX, domain.min, index]),
+        renderItem: (params, api) => renderGapLabel(params, api, compressedAxis.gaps),
+        silent: true,
+        z: 9,
+      },
+      {
+        name: displayIndicatorName(indicator),
+        type: 'scatter',
+        data: compressedAxis.points.map(point => ({
+          value: [point.displayX, point.value, point.detectedAt, point.status, point.tone],
+          itemStyle: {
+            color: detailToneColor(point.tone),
+            borderColor: '#fff',
+            borderWidth: 1.2,
+            shadowBlur: 2,
+            shadowColor: 'rgba(19, 35, 63, .14)',
+          },
+        })),
+        encode: { x: 0, y: 1 },
+        symbol: 'circle',
+        symbolSize: 9,
+        emphasis: {
+          scale: 1.08,
+          itemStyle: {
+            borderColor: '#fff',
+            borderWidth: 1.6,
+            shadowBlur: 6,
+            shadowColor: 'rgba(19, 35, 63, .2)',
+          },
+        },
+        z: 8,
+      },
+    ],
+    graphic: compressedAxis.points.length ? undefined : {
+      type: 'text',
+      left: 'center',
+      top: 'middle',
+      style: {
+        text: '暂无趋势数据',
+        fill: '#8b96aa',
+        fontSize: 14,
+        fontWeight: 600,
+      },
+    },
+  } as EChartsOption
+}
+
+function renderDetailSegment(
+  params: CustomSeriesRenderItemParams,
+  api: CustomSeriesRenderItemAPI,
+  segments: DetailChartSegment[],
+) {
+  const segment = segments[params.dataIndex]
+  if (!segment) return null
+
+  const start = api.coord([segment.startX, segment.startValue])
+  const end = api.coord([segment.endX, segment.endValue])
+  const coordSys = params.coordSys as unknown as { x: number; y: number; width: number; height: number }
+  const clipped = graphic.clipPointsByRect([start, end], {
+    x: coordSys.x,
+    y: coordSys.y,
+    width: coordSys.width,
+    height: coordSys.height,
+  })
+  if (clipped.length < 2) return null
+
+  return {
+    type: 'line',
+    shape: {
+      x1: clipped[0][0],
+      y1: clipped[0][1],
+      x2: clipped[1][0],
+      y2: clipped[1][1],
+    },
+    style: {
+      stroke: detailToneColor(segment.tone),
+      lineWidth: segment.tone === 'gap' ? 2.2 : 3,
+      lineDash: segment.tone === 'gap' ? [7, 6] : undefined,
+      lineCap: 'round',
+      lineJoin: 'round',
+    },
+  }
+}
+
+function renderGapLabel(
+  params: CustomSeriesRenderItemParams,
+  api: CustomSeriesRenderItemAPI,
+  gaps: CompressedGap[],
+) {
+  const gap = gaps[params.dataIndex]
+  if (!gap) return null
+
+  const coordSys = params.coordSys as unknown as { x: number; y: number; width: number; height: number }
+  const point = api.coord([gap.labelX, Number(api.value(1))])
+  const x = clamp(Number(point[0]), coordSys.x + 42, coordSys.x + coordSys.width - 42)
+  const y = coordSys.y + coordSys.height - (gap.crossedDay ? 30 : 16)
+
+  return {
+    type: 'text',
+    style: {
+      x,
+      y,
+      text: formatGapAxisLabel(gap),
+      align: 'center',
+      verticalAlign: 'middle',
+      fill: gapLineColor,
+      fontSize: 11,
+      fontWeight: 700,
+      lineHeight: 15,
+      backgroundColor: 'rgba(255, 255, 255, .9)',
+      borderColor: 'rgba(154, 166, 188, .28)',
+      borderWidth: 1,
+      borderRadius: 4,
+      padding: [3, 6],
+    },
+  }
+}
+
+function detailChartPoints(indicator: IotMonitorIndicator): DetailChartPoint[] {
+  return (indicator.points ?? [])
+    .map((point, index) => {
+      const parsedTime = parseTimeMs(point.detectedAt)
+      const tone: ChartTone = isPointInSafeRange(Number(point.value), indicator.safeRange, point.status) ? 'safe' : 'danger'
+      return {
+        key: `${point.logId}-${index}`,
+        time: parsedTime ?? index,
+        value: Number(point.value),
+        detectedAt: point.detectedAt,
+        status: point.status,
+        tone,
+      }
+    })
+    .sort((left, right) => left.time - right.time)
+}
+
+function buildCompressedDetailAxis(points: DetailChartPoint[], indicator: IotMonitorIndicator): CompressedDetailAxis {
+  const compressedPoints: CompressedDetailPoint[] = []
+  const gaps: CompressedGap[] = []
+
+  for (let index = 0; index < points.length; index += 1) {
+    const point = points[index]
+
+    if (index === 0) {
+      compressedPoints.push({ ...point, displayX: 0, forceDateLabel: false })
+      continue
+    }
+
+    const previousPoint = points[index - 1]
+    const previousCompressedPoint = compressedPoints[compressedPoints.length - 1]
+    const interrupted = isDataInterrupted(previousPoint.detectedAt, point.detectedAt)
+    const displayX = previousCompressedPoint.displayX + (interrupted ? compressedGapSlotWidth : 1)
+
+    if (interrupted) {
+      const startTime = parseTimeMs(previousPoint.detectedAt)
+      const endTime = parseTimeMs(point.detectedAt)
+      if (startTime != null && endTime != null) {
+        gaps.push({
+          key: `compressed-gap-${previousPoint.key}-${point.key}`,
+          labelX: previousCompressedPoint.displayX + compressedGapSlotWidth / 2,
+          startTime,
+          endTime,
+          durationMs: Math.abs(endTime - startTime),
+          crossedDay: !isSameCalendarDay(startTime, endTime),
+        })
+      }
+    }
+
+    compressedPoints.push({
+      ...point,
+      displayX,
+      forceDateLabel: interrupted,
+    })
+  }
+
+  const segments = buildCompressedDetailSegments(compressedPoints, indicator)
+  const axisLabels = buildCompressedAxisLabels(compressedPoints, gaps)
+
+  return {
+    points: compressedPoints,
+    segments,
+    gaps,
+    axisLabels,
+    maxDisplayX: compressedPoints.length ? compressedPoints[compressedPoints.length - 1].displayX : 0,
+  }
+}
+
+function buildCompressedDetailSegments(
+  points: CompressedDetailPoint[],
+  indicator: IotMonitorIndicator,
+): DetailChartSegment[] {
+  if (points.length < 2) return []
+
+  const ranges = normalizeSafeRanges(indicator.safeRange)
+  const segments: DetailChartSegment[] = []
+
+  for (let index = 1; index < points.length; index += 1) {
+    const prev = points[index - 1]
+    const current = points[index]
+
+    if (isDataInterrupted(prev.detectedAt, current.detectedAt)) {
+      segments.push({
+        key: `gap-${prev.key}-${current.key}`,
+        startX: prev.displayX,
+        startValue: prev.value,
+        endX: current.displayX,
+        endValue: current.value,
+        tone: 'gap',
+      })
+      continue
+    }
+
+    segments.push(...splitDetailSegmentBySafety(prev, current, ranges))
+  }
+
+  return segments
+}
+
+function splitDetailSegmentBySafety(
+  start: CompressedDetailPoint,
+  end: CompressedDetailPoint,
+  ranges: NormalizedSafeRange[],
+): DetailChartSegment[] {
+  if (ranges.length === 0) {
+    return [{
+      key: `detail-segment-${start.key}-${end.key}`,
+      startX: start.displayX,
+      startValue: start.value,
+      endX: end.displayX,
+      endValue: end.value,
+      tone: start.tone === 'danger' || end.tone === 'danger' ? 'danger' : 'safe',
+    }]
+  }
+
+  const cuts = [0, 1]
+  const valueDelta = end.value - start.value
+
+  if (Math.abs(valueDelta) > thresholdEpsilon) {
+    for (const boundary of safeRangeBoundaries(ranges)) {
+      const ratio = (boundary - start.value) / valueDelta
+      if (ratio > thresholdEpsilon && ratio < 1 - thresholdEpsilon) {
+        cuts.push(ratio)
+      }
+    }
+  }
+
+  const sortedCuts = uniqueSortedRatios(cuts)
+  const result: DetailChartSegment[] = []
+
+  for (let index = 1; index < sortedCuts.length; index += 1) {
+    const from = sortedCuts[index - 1]
+    const to = sortedCuts[index]
+    if (to - from <= thresholdEpsilon) continue
+
+    const mid = (from + to) / 2
+    const midValue = interpolate(start.value, end.value, mid)
+    const tone: ChartTone = isValueInSafeRanges(midValue, ranges) ? 'safe' : 'danger'
+
+    result.push({
+      key: `detail-segment-${start.key}-${end.key}-${index}`,
+      startX: interpolate(start.displayX, end.displayX, from),
+      startValue: interpolate(start.value, end.value, from),
+      endX: interpolate(start.displayX, end.displayX, to),
+      endValue: interpolate(start.value, end.value, to),
+      tone,
+    })
+  }
+
+  return result
+}
+
+function buildCompressedAxisLabels(points: CompressedDetailPoint[], gaps: CompressedGap[]) {
+  const labels = new Map<number, string>()
+  if (points.length === 0) return labels
+
+  const labelStep = Math.max(1, Math.ceil(points.length / 6))
+  const occupiedSlots: number[] = []
+  const reserveLabel = (x: number, label: string, reservedDistance = 1.7) => {
+    labels.set(x, label)
+    occupiedSlots.push(x - reservedDistance, x, x + reservedDistance)
+  }
+  const canPlaceOptionalLabel = (x: number) => occupiedSlots.every(slot => Math.abs(slot - x) >= 1.45)
+
+  for (const point of points) {
+    if (point.forceDateLabel) {
+      reserveLabel(point.displayX, formatPointAxisLabel(point, true), 2.2)
+    }
+  }
+
+  points.forEach((point, index) => {
+    if (point.forceDateLabel) return
+
+    const requiredEdgeLabel = index === 0 || index === points.length - 1
+    if (requiredEdgeLabel) {
+      if (!labels.has(point.displayX) && canPlaceOptionalLabel(point.displayX)) {
+        reserveLabel(point.displayX, formatPointAxisLabel(point, false))
+      }
+      return
+    }
+
+    if (index % labelStep === 0 && canPlaceOptionalLabel(point.displayX)) {
+      reserveLabel(point.displayX, formatPointAxisLabel(point, false))
+    }
+  })
+
+  return labels
+}
+
+function formatCompressedAxisLabel(value: number, labels: Map<number, string>) {
+  const rounded = Math.round(value)
+  if (Math.abs(value - rounded) > thresholdEpsilon) return ''
+  return labels.get(rounded) ?? ''
+}
+
+function formatGapAxisLabel(gap: CompressedGap) {
+  const crossedDayText = gap.crossedDay ? `\n跨至 ${formatShortDate(gap.endTime)}` : ''
+  return `[中断 ${formatGapDuration(gap.durationMs)}]${crossedDayText}`
+}
+
+function formatPointAxisLabel(point: CompressedDetailPoint, includeDate: boolean) {
+  if (includeDate) return `${formatShortDate(point.time)}\n${formatClockTime(point.time, false)}`
+  return formatClockTime(point.time)
+}
+
+function formatGapDuration(durationMs: number) {
+  const totalSeconds = Math.max(1, Math.round(durationMs / 1000))
+  const days = Math.floor(totalSeconds / 86400)
+  const hours = Math.floor((totalSeconds % 86400) / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+
+  if (days > 0) return `${days}天${hours}小时`
+  if (hours > 0) return `${hours}小时${pad2(minutes)}分`
+  if (minutes > 0) return `${minutes}分${seconds > 0 ? `${seconds}秒` : ''}`
+  return `${seconds}秒`
+}
+
+function detailSafeMarkAreas(indicator: IotMonitorIndicator, domain: { min: number; max: number }) {
+  return normalizeSafeRanges(indicator.safeRange).map(range => {
+    const lower = range.lower === Number.NEGATIVE_INFINITY ? domain.min : clamp(range.lower, domain.min, domain.max)
+    const upper = range.upper === Number.POSITIVE_INFINITY ? domain.max : clamp(range.upper, domain.min, domain.max)
+    return [{ yAxis: lower }, { yAxis: upper }]
+  })
+}
+
+function detailThresholdMarkLines(indicator: IotMonitorIndicator) {
+  const lines = new Map<number, string>()
+  for (const range of normalizeSafeRanges(indicator.safeRange)) {
+    if (Number.isFinite(range.lower)) lines.set(range.lower, '下限')
+    if (Number.isFinite(range.upper)) lines.set(range.upper, '上限')
+  }
+  return Array.from(lines, ([value, name]) => ({ yAxis: value, name }))
+}
+
+function formatDetailTooltip(params: any, indicator: IotMonitorIndicator) {
+  const value = Array.isArray(params.value) ? params.value : []
+  const detectedAt = value[2] as string | undefined
+  const metricValue = Number(value[1])
+  const tone = value[4] as ChartTone | undefined
+  const statusText = tone === 'danger' ? '超出阈值' : '安全范围内'
+
+  return [
+    `<strong>${displayIndicatorName(indicator)}</strong>`,
+    `采集时间：${formatDateTime(detectedAt)}`,
+    `采集值：${formatMetricValue(metricValue, indicator.unit)}`,
+    `安全范围：${formatSafeRange(indicator.safeRange, indicator.unit)}`,
+    `状态：${statusText}`,
+  ].join('<br/>')
+}
+
+function formatClockTime(value: number, withSeconds = true) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const time = `${pad2(date.getHours())}:${pad2(date.getMinutes())}`
+  return withSeconds ? `${time}:${pad2(date.getSeconds())}` : time
+}
+
+function formatShortDate(value: number) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return `${date.getMonth() + 1}.${date.getDate()}`
+}
+
+function isSameCalendarDay(left: number, right: number) {
+  const leftDate = new Date(left)
+  const rightDate = new Date(right)
+  return leftDate.getFullYear() === rightDate.getFullYear()
+    && leftDate.getMonth() === rightDate.getMonth()
+    && leftDate.getDate() === rightDate.getDate()
+}
+
+function pad2(value: number) {
+  return value.toString().padStart(2, '0')
+}
+
+function detailToneColor(tone: ChartTone) {
+  if (tone === 'danger') return dangerLineColor
+  if (tone === 'gap') return gapLineColor
+  return safeLineColor
+}
+
 function chartPoints(indicator: IotMonitorIndicator): ChartPoint[] {
   const points = indicator.points ?? []
   if (points.length === 0) return []
@@ -606,19 +1262,96 @@ function chartPoints(indicator: IotMonitorIndicator): ChartPoint[] {
     key: `${point.logId}-${index}`,
     x: points.length === 1 ? chartWidth - chartPadding : chartPadding + (index / (points.length - 1)) * width,
     y: scaleY(point.value, domain.min, domain.max),
+    value: Number(point.value),
+    detectedAt: point.detectedAt,
     status: point.status,
+    tone: isPointInSafeRange(Number(point.value), indicator.safeRange, point.status) ? 'safe' : 'danger',
   }))
 }
 
-function polylinePoints(indicator: IotMonitorIndicator): string {
-  return chartPoints(indicator).map(point => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ')
+function chartSegments(indicator: IotMonitorIndicator): ChartSegment[] {
+  const points = chartPoints(indicator)
+  if (points.length < 2) return []
+
+  const ranges = normalizeSafeRanges(indicator.safeRange)
+  const segments: ChartSegment[] = []
+
+  for (let index = 1; index < points.length; index += 1) {
+    const prev = points[index - 1]
+    const current = points[index]
+
+    if (isDataInterrupted(prev.detectedAt, current.detectedAt)) {
+      segments.push({
+        key: `gap-${prev.key}-${current.key}`,
+        x1: prev.x,
+        y1: prev.y,
+        x2: current.x,
+        y2: current.y,
+        tone: 'gap',
+      })
+      continue
+    }
+
+    segments.push(...splitSegmentBySafety(prev, current, ranges))
+  }
+
+  return segments
+}
+
+function splitSegmentBySafety(start: ChartPoint, end: ChartPoint, ranges: NormalizedSafeRange[]): ChartSegment[] {
+  if (ranges.length === 0) {
+    return [{
+      key: `segment-${start.key}-${end.key}`,
+      x1: start.x,
+      y1: start.y,
+      x2: end.x,
+      y2: end.y,
+      tone: start.tone === 'danger' || end.tone === 'danger' ? 'danger' : 'safe',
+    }]
+  }
+
+  const cuts = [0, 1]
+  const valueDelta = end.value - start.value
+
+  if (Math.abs(valueDelta) > thresholdEpsilon) {
+    for (const boundary of safeRangeBoundaries(ranges)) {
+      const ratio = (boundary - start.value) / valueDelta
+      if (ratio > thresholdEpsilon && ratio < 1 - thresholdEpsilon) {
+        cuts.push(ratio)
+      }
+    }
+  }
+
+  const sortedCuts = uniqueSortedRatios(cuts)
+  const result: ChartSegment[] = []
+
+  for (let index = 1; index < sortedCuts.length; index += 1) {
+    const from = sortedCuts[index - 1]
+    const to = sortedCuts[index]
+    if (to - from <= thresholdEpsilon) continue
+
+    const mid = (from + to) / 2
+    const midValue = interpolate(start.value, end.value, mid)
+    const tone: ChartTone = isValueInSafeRanges(midValue, ranges) ? 'safe' : 'danger'
+
+    result.push({
+      key: `segment-${start.key}-${end.key}-${index}`,
+      x1: interpolate(start.x, end.x, from),
+      y1: interpolate(start.y, end.y, from),
+      x2: interpolate(start.x, end.x, to),
+      y2: interpolate(start.y, end.y, to),
+      tone,
+    })
+  }
+
+  return result
 }
 
 function safeBands(indicator: IotMonitorIndicator): SafeBand[] {
   const domain = chartDomain(indicator)
-  return (indicator.safeRange ?? []).map(range => {
-    const min = range[0] == null ? domain.min : clamp(Number(range[0]), domain.min, domain.max)
-    const max = range[1] == null ? domain.max : clamp(Number(range[1]), domain.min, domain.max)
+  return normalizeSafeRanges(indicator.safeRange).map(range => {
+    const min = range.lower === Number.NEGATIVE_INFINITY ? domain.min : clamp(range.lower, domain.min, domain.max)
+    const max = range.upper === Number.POSITIVE_INFINITY ? domain.max : clamp(range.upper, domain.min, domain.max)
     const y1 = scaleY(max, domain.min, domain.max)
     const y2 = scaleY(min, domain.min, domain.max)
     return { y: Math.min(y1, y2), height: Math.max(1, Math.abs(y2 - y1)) }
@@ -628,9 +1361,9 @@ function safeBands(indicator: IotMonitorIndicator): SafeBand[] {
 function boundaryLines(indicator: IotMonitorIndicator): BoundaryLine[] {
   const domain = chartDomain(indicator)
   const values = new Set<number>()
-  for (const range of indicator.safeRange ?? []) {
-    if (range[0] != null) values.add(Number(range[0]))
-    if (range[1] != null) values.add(Number(range[1]))
+  for (const range of normalizeSafeRanges(indicator.safeRange)) {
+    if (Number.isFinite(range.lower)) values.add(range.lower)
+    if (Number.isFinite(range.upper)) values.add(range.upper)
   }
   return Array.from(values)
     .filter(value => value >= domain.min && value <= domain.max)
@@ -642,9 +1375,9 @@ function chartDomain(indicator: IotMonitorIndicator): { min: number; max: number
   for (const point of indicator.points ?? []) {
     values.push(Number(point.value))
   }
-  for (const range of indicator.safeRange ?? []) {
-    if (range[0] != null) values.push(Number(range[0]))
-    if (range[1] != null) values.push(Number(range[1]))
+  for (const range of normalizeSafeRanges(indicator.safeRange)) {
+    if (Number.isFinite(range.lower)) values.push(range.lower)
+    if (Number.isFinite(range.upper)) values.push(range.upper)
   }
   if (values.length === 0) return { min: 0, max: 1 }
   let min = Math.min(...values)
@@ -666,8 +1399,65 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value))
 }
 
-function hasAlertPoint(indicator: IotMonitorIndicator) {
-  return indicator.points?.some(point => point.status === 2) ?? false
+function normalizeSafeRanges(safeRange: Array<Array<number | null>> | null | undefined): NormalizedSafeRange[] {
+  return (safeRange ?? [])
+    .map(range => {
+      const rawLower = range[0]
+      const rawUpper = range[1]
+      if (rawLower == null && rawUpper == null) return null
+
+      const lower = rawLower == null ? Number.NEGATIVE_INFINITY : Number(rawLower)
+      const upper = rawUpper == null ? Number.POSITIVE_INFINITY : Number(rawUpper)
+      if (!Number.isFinite(lower) && lower !== Number.NEGATIVE_INFINITY) return null
+      if (!Number.isFinite(upper) && upper !== Number.POSITIVE_INFINITY) return null
+
+      return lower <= upper ? { lower, upper } : { lower: upper, upper: lower }
+    })
+    .filter((range): range is NormalizedSafeRange => range != null)
+}
+
+function isPointInSafeRange(value: number, safeRange: Array<Array<number | null>> | null | undefined, status: number) {
+  const ranges = normalizeSafeRanges(safeRange)
+  if (ranges.length === 0) return status !== 2
+  return isValueInSafeRanges(value, ranges)
+}
+
+function isValueInSafeRanges(value: number, ranges: NormalizedSafeRange[]) {
+  return ranges.some(range => value >= range.lower - thresholdEpsilon && value <= range.upper + thresholdEpsilon)
+}
+
+function safeRangeBoundaries(ranges: NormalizedSafeRange[]) {
+  const values = new Set<number>()
+  for (const range of ranges) {
+    if (Number.isFinite(range.lower)) values.add(range.lower)
+    if (Number.isFinite(range.upper)) values.add(range.upper)
+  }
+  return Array.from(values)
+}
+
+function uniqueSortedRatios(values: number[]) {
+  return values
+    .filter(value => value >= 0 && value <= 1)
+    .sort((a, b) => a - b)
+    .filter((value, index, sorted) => index === 0 || Math.abs(value - sorted[index - 1]) > thresholdEpsilon)
+}
+
+function interpolate(start: number, end: number, ratio: number) {
+  return start + (end - start) * ratio
+}
+
+function isDataInterrupted(start: string | null | undefined, end: string | null | undefined) {
+  const startTime = parseTimeMs(start)
+  const endTime = parseTimeMs(end)
+  if (startTime == null || endTime == null) return false
+  return Math.abs(endTime - startTime) > dataGapThresholdMs
+}
+
+function parseTimeMs(value: string | null | undefined) {
+  if (!value) return null
+  const normalized = value.includes('T') ? value : value.replace(' ', 'T')
+  const time = new Date(normalized).getTime()
+  return Number.isFinite(time) ? time : null
 }
 
 function formatMetricValue(value: number | null | undefined, unit: string) {
@@ -811,6 +1601,14 @@ function badgeStatusClass(status: IotLabMonitorStatus) {
 
 .loading-state,.empty-state { min-height:260px; border:1px dashed rgba(25,42,75,.16); border-radius:8px; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:10px; color:#8b96aa; background:rgba(255,255,255,.45) }
 .empty-state p { margin:0; font-size:14px }
+.chart-legend-panel { display:flex; align-items:center; flex-wrap:wrap; gap:14px 18px; margin:0 0 14px; padding:10px 12px; border:1px solid rgba(20,37,70,.08); border-radius:8px; background:rgba(255,255,255,.78); box-shadow:0 8px 24px rgba(22,35,70,.04) }
+.chart-legend,.legend-item { display:flex; align-items:center; gap:7px }
+.chart-legend { flex-wrap:wrap; justify-content:flex-end; gap:10px 14px }
+.legend-item { color:#536079; font-size:12px; line-height:1.2; white-space:nowrap }
+.legend-line { display:inline-block; width:24px; height:0; border-top:2px solid currentColor; border-radius:999px; flex-shrink:0 }
+.legend-line.safe { color:#1fa85f }
+.legend-line.danger { color:#ef4444 }
+.legend-line.gap { color:#9aa6bc; border-top-style:dashed }
 .lab-card-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px }
 .lab-card { border:1px solid rgba(20,37,70,.08); border-left-width:3px; border-radius:8px; background:rgba(255,255,255,.74); padding:18px 20px; box-shadow:0 8px 24px rgba(22,35,70,.04) }
 .lab-card.card-normal { border-left-color:#24b66b }
@@ -840,20 +1638,22 @@ function badgeStatusClass(status: IotLabMonitorStatus) {
 .indicator-value { min-width:0 }
 .indicator-value strong { display:block; color:#15203a; font-size:14px; font-weight:800; white-space:nowrap }
 .indicator-value em { display:block; margin-top:3px; color:#7a859b; font-size:11px; font-style:normal; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
-.mini-chart-wrap { position:relative; min-width:0; height:42px; background:linear-gradient(90deg,rgba(39,174,96,.08),rgba(39,174,96,.04)); border-radius:2px; overflow:hidden }
+.mini-chart-wrap { position:relative; min-width:0; height:58px; background:#fff; border:1px solid #edf2f7; border-radius:6px; overflow:hidden }
 .mini-chart { width:100%; height:100%; display:block }
-.chart-time { position:absolute; right:4px; bottom:2px; color:#78859a; font-size:11px }
-.safe-band { fill:rgba(37,182,107,.14) }
-.boundary-line { stroke:rgba(70,112,92,.28); stroke-width:1; stroke-dasharray:4 3 }
-.chart-line { fill:none; stroke-width:1.8 }
-.chart-line.normal { stroke:#1fa85f }
-.chart-line.danger { stroke:#e64c4c }
-.chart-point.normal { fill:#1fa85f }
-.chart-point.danger { fill:#e64c4c }
+.chart-time { position:absolute; right:6px; bottom:4px; color:#78859a; font-size:11px; line-height:1; padding:2px 4px; border-radius:4px; background:rgba(255,255,255,.76) }
+.safe-band { fill:rgba(37,182,107,.13) }
+.boundary-line { stroke:rgba(46,119,91,.46); stroke-width:1; stroke-dasharray:5 4; vector-effect:non-scaling-stroke }
+.chart-line-segment { fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; vector-effect:non-scaling-stroke }
+.chart-line-segment.safe { stroke:#1fa85f }
+.chart-line-segment.danger { stroke:#ef4444 }
+.chart-line-segment.gap { stroke:#9aa6bc; stroke-width:1.6; stroke-dasharray:5 4 }
+.chart-point { stroke:#fff; stroke-width:1.2; vector-effect:non-scaling-stroke }
+.chart-point.safe { fill:#1fa85f }
+.chart-point.danger { fill:#ef4444 }
 .card-empty { padding:20px 0; color:#8c96a8; text-align:center; font-size:13px }
 
 .modal-overlay { position:fixed; inset:0; z-index:1000; background:rgba(10,18,34,.35); backdrop-filter:blur(4px); display:flex; align-items:center; justify-content:center; padding:24px }
-.detail-modal { width:min(1060px,96vw); max-height:88vh; overflow:hidden; background:#fff; border-radius:10px; box-shadow:0 24px 80px rgba(8,20,44,.28); display:flex; flex-direction:column }
+.detail-modal { width:min(1420px,96vw); max-height:90vh; overflow:hidden; background:#fff; border-radius:10px; box-shadow:0 24px 80px rgba(8,20,44,.28); display:flex; flex-direction:column }
 .detail-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 22px; border-bottom:1px solid #eef1f6 }
 .detail-head h3 { margin:0; font-size:18px; color:#121b30 }
 .detail-head p { margin:5px 0 0; color:#7a8497; font-size:13px }
@@ -863,11 +1663,13 @@ function badgeStatusClass(status: IotLabMonitorStatus) {
 .indicator-tabs { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:14px }
 .indicator-tabs button { border:1px solid #dbe2ec; border-radius:999px; background:#fff; color:#4b5870; padding:7px 13px; font-size:13px; cursor:pointer }
 .indicator-tabs button.active { border-color:#2475ff; color:#2475ff; background:#f0f5ff; font-weight:700 }
-.detail-chart-panel { border:1px solid #eef1f6; border-radius:8px; padding:12px 14px; margin-bottom:14px; background:#fbfcff }
-.detail-chart-meta { display:flex; align-items:baseline; gap:12px; margin-bottom:8px }
-.detail-chart-meta strong { color:#121b30; font-size:18px }
-.detail-chart-meta span { color:#7a8497; font-size:13px }
-.detail-chart { width:100%; height:126px; display:block; background:linear-gradient(90deg,rgba(39,174,96,.08),rgba(39,174,96,.03)); border-radius:4px }
+.detail-chart-panel { border:1px solid #e3e9f2; border-radius:8px; padding:16px 18px 18px; margin-bottom:14px; background:#fff; box-shadow:0 10px 28px rgba(22,35,70,.05) }
+.detail-chart-top { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:12px }
+.detail-chart-meta { min-width:0; display:flex; flex-direction:column; gap:5px }
+.detail-chart-meta strong { color:#121b30; font-size:17px; line-height:1.2 }
+.detail-chart-meta span { color:#7a8497; font-size:13px; line-height:1.35 }
+.chart-legend.compact { padding-top:2px }
+.detail-chart { width:100%; height:320px; display:block; background:linear-gradient(180deg,#fff 0%,#fbfdff 100%); border:1px solid #edf2f7; border-radius:6px }
 .log-table-wrap { overflow-x:auto; border:1px solid #eef1f6; border-radius:8px }
 .log-table { width:100%; border-collapse:collapse; min-width:880px }
 .log-table th,.log-table td { padding:10px 12px; border-bottom:1px solid #eef1f6; text-align:left; font-size:13px; color:#34405a }
