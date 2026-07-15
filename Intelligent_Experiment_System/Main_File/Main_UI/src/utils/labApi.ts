@@ -3,52 +3,164 @@ import type { ApiResult, PageResult } from './api'
 
 // ==================== 实验室场地管理 ====================
 
-export type LabStatus = 1 | 2 | 3  // 1开放中 2维护中 3已关闭
+export type LabRunningStatus = 1 | 2 | 3 | 4
+export type LabOpenStatus = 1 | 2 | 3
+export type LabStatus = LabRunningStatus
 
 export interface LabListItem {
   id: number
-  labCode: string
   labName: string
   labTypeId: number
   labTypeName: string
   campus: string
   building: string
-  floor: string
+  floor: number | null
   roomNo: string
   capacity: number
   areaM2: number
   dutyUserId: number | null
   dutyUserName: string
-  runningStatus: LabStatus
-  runningStatusName: string
+  runningStatus: LabRunningStatus
+  runningStatusDesc: string
+  openStatus: LabOpenStatus
+  openStatusDesc: string
   description: string | null
   createdAt: string
   updatedAt: string
+}
+
+export interface LabScheduleItem {
+  id: number
+  dayOfWeek: number
+  openTime: string
+  closeTime: string
+}
+
+export interface LabDetail extends LabListItem {
+  weeklySchedules: LabScheduleItem[]
+}
+
+export interface LabTypeItem {
+  id: number
+  labTypeName: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface LabFilterOptions {
+  campuses: string[]
+  buildings: string[]
+  buildingByCampus: Record<string, string[]>
+}
+
+export interface LabStats {
+  total: number
+  runningStatusCounts: Record<number, number>
+  openStatusCounts: Record<number, number>
+}
+
+export interface LabCurrentUsage {
+  reservationNo: string
+  applicantId: number
+  applicantName: string
+  reservationDate: string
+  startTime: string
+  endTime: string
+  checkInAt: string
+  purpose: string | null
+  courseName: string | null
+}
+
+export interface LabStatusTransitionOption {
+  runningStatus: LabRunningStatus
+  runningStatusDesc: string
+  openStatus: LabOpenStatus
+  openStatusDesc: string
+  actionLabel: string
+  description: string
+  mayNeedForceFinishCurrentUsage: boolean
+  mayNeedForceCancelFutureReservations: boolean
+  requiresPermanentCloseConfirm: boolean
+}
+
+export interface LabStatusTransitionResponse {
+  currentRunningStatus: LabRunningStatus
+  currentRunningStatusDesc: string
+  currentOpenStatus: LabOpenStatus
+  currentOpenStatusDesc: string
+  options: LabStatusTransitionOption[]
+}
+
+export interface LabStatusUpdateResponse {
+  applied: boolean
+  lab: LabDetail
+  conflictedReservations: ConflictedReservation[]
+  cancelledReservations: ConflictedReservation[]
+  forcedCheckedOutReservations: ConflictedReservation[]
+  message: string | null
+}
+
+export interface ConflictedReservation {
+  reservationNo: string
+  applicantId: number
+  reservationDate: string
+  startTime: string
+  endTime: string
+  reservationStatus: number
+  reservationStatusDesc: string
+}
+
+export interface LabScheduleMutationResponse {
+  applied: boolean
+  schedules: LabScheduleItem[]
+  conflictedReservations: ConflictedReservation[]
+}
+
+export interface LabCloseScheduleItem {
+  id: number
+  labId: number
+  closeType: number
+  closeTypeDesc: string
+  startTime: string
+  endTime: string
+  reason: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface LabCloseScheduleMutationResponse {
+  applied: boolean
+  closeSchedule: LabCloseScheduleItem | null
+  conflictedReservations: ConflictedReservation[]
 }
 
 export interface LabPageQuery {
   pageNum?: number
   page?: number
   pageSize?: number
-  labName?: string
   keyword?: string
-  labTypeId?: number
+  labName?: string
+  campus?: string
   building?: string
-  runningStatus?: LabStatus
+  floor?: number
+  roomNo?: string
+  labTypeId?: number
+  runningStatus?: LabRunningStatus
+  openStatus?: LabOpenStatus
+  sortField?: string
+  sortOrder?: 'asc' | 'desc'
 }
 
 export interface CreateLabRequest {
-  labCode: string
   labName: string
   labTypeId: number
   campus?: string
   building?: string
-  floor?: string
+  floor?: number
   roomNo?: string
   capacity?: number
   areaM2?: number
   dutyUserId?: number
-  runningStatus?: LabStatus
   description?: string
 }
 
@@ -58,13 +170,44 @@ export interface UpdateLabRequest {
   labTypeId?: number
   campus?: string
   building?: string
-  floor?: string
+  floor?: number
   roomNo?: string
   capacity?: number
   areaM2?: number
   dutyUserId?: number
-  runningStatus?: LabStatus
   description?: string
+}
+
+export interface UpdateLabStatusRequest {
+  runningStatus?: LabRunningStatus
+  openStatus?: LabOpenStatus
+  changeReason: string
+  forceFinishCurrentUsage?: boolean
+  forceCancelFutureReservations?: boolean
+  confirmPermanentClose?: boolean
+}
+
+export interface SaveLabSchedulesRequest {
+  schedules: Array<{
+    dayOfWeek: number
+    openTime: string
+    closeTime: string
+  }>
+  forceCancelConflictedReservations?: boolean
+}
+
+export interface LabCloseScheduleRequest {
+  closeType: number
+  startTime: string
+  endTime: string
+  reason?: string
+  forceCancelConflictedReservations?: boolean
+}
+
+export interface LabCloseScheduleQuery {
+  startDate?: string
+  endDate?: string
+  closeType?: number
 }
 
 // 分页查询实验室
@@ -80,19 +223,104 @@ export function getLabPage(query: LabPageQuery): Promise<PageResult<LabListItem>
 }
 
 // 查询实验室详情
-export function getLabDetail(id: number): Promise<LabListItem> {
-  return api.get<ApiResult<LabListItem>>(`/lab-management/labs/${id}`)
+export function getLabDetail(id: number): Promise<LabDetail> {
+  return api.get<ApiResult<LabDetail>>(`/lab-management/labs/${id}`)
     .then(res => res.data.data)
 }
 
 // 新增实验室
-export function createLab(data: CreateLabRequest): Promise<number> {
-  return api.post<ApiResult<number>>('/lab-management/labs', data).then(res => res.data.data)
+export function createLab(data: CreateLabRequest): Promise<LabDetail> {
+  return api.post<ApiResult<LabDetail>>('/lab-management/labs', data).then(res => res.data.data)
 }
 
 // 编辑实验室
-export function updateLab(data: UpdateLabRequest): Promise<void> {
-  return api.put<ApiResult<null>>(`/lab-management/labs/${data.id}`, data).then(() => {})
+export function updateLab(data: UpdateLabRequest): Promise<LabDetail> {
+  const { id, ...payload } = data
+  return api.put<ApiResult<LabDetail>>(`/lab-management/labs/${id}`, payload).then(res => res.data.data)
+}
+
+export function deleteLab(id: number): Promise<void> {
+  return api.delete<ApiResult<null>>(`/lab-management/labs/${id}`).then(() => {})
+}
+
+export function updateLabStatus(id: number, data: UpdateLabStatusRequest): Promise<LabStatusUpdateResponse> {
+  return api.patch<ApiResult<LabStatusUpdateResponse>>(`/lab-management/labs/${id}/status`, data)
+    .then(res => res.data.data)
+}
+
+export function getLabStats(): Promise<LabStats> {
+  return api.get<ApiResult<LabStats>>('/lab-management/labs/stats').then(res => res.data.data)
+}
+
+export function getLabCurrentUsage(id: number): Promise<LabCurrentUsage[]> {
+  return api.get<ApiResult<LabCurrentUsage[]>>(`/lab-management/labs/${id}/current-usage`)
+    .then(res => res.data.data)
+}
+
+export function getLabStatusTransitions(id: number): Promise<LabStatusTransitionResponse> {
+  return api.get<ApiResult<LabStatusTransitionResponse>>(`/lab-management/labs/${id}/status-transitions`)
+    .then(res => res.data.data)
+}
+
+export function getLabTypes(): Promise<LabTypeItem[]> {
+  return api.get<ApiResult<LabTypeItem[]>>('/lab-management/lab-types').then(res => res.data.data)
+}
+
+export function getLabFilterOptions(): Promise<LabFilterOptions> {
+  return api.get<ApiResult<LabFilterOptions>>('/lab-management/labs/filter-options')
+    .then(res => res.data.data)
+}
+
+export function getLabSchedules(id: number): Promise<LabScheduleItem[]> {
+  return api.get<ApiResult<LabScheduleItem[]>>(`/lab-management/labs/${id}/schedules`)
+    .then(res => res.data.data)
+}
+
+export function saveLabSchedules(id: number, data: SaveLabSchedulesRequest): Promise<LabScheduleMutationResponse> {
+  return api.put<ApiResult<LabScheduleMutationResponse>>(`/lab-management/labs/${id}/schedules`, data)
+    .then(res => res.data.data)
+}
+
+export function deleteLabSchedule(
+  labId: number,
+  scheduleId: number,
+  forceCancelConflictedReservations = false,
+): Promise<LabScheduleMutationResponse> {
+  return api.delete<ApiResult<LabScheduleMutationResponse>>(`/lab-management/labs/${labId}/schedules/${scheduleId}`, {
+    params: { forceCancelConflictedReservations },
+  }).then(res => res.data.data)
+}
+
+export function getLabCloseSchedules(
+  labId: number,
+  query: LabCloseScheduleQuery = {},
+): Promise<LabCloseScheduleItem[]> {
+  return api.get<ApiResult<LabCloseScheduleItem[]>>(`/lab-management/labs/${labId}/close-schedules`, {
+    params: query,
+  }).then(res => res.data.data)
+}
+
+export function createLabCloseSchedule(
+  labId: number,
+  data: LabCloseScheduleRequest,
+): Promise<LabCloseScheduleMutationResponse> {
+  return api.post<ApiResult<LabCloseScheduleMutationResponse>>(`/lab-management/labs/${labId}/close-schedules`, data)
+    .then(res => res.data.data)
+}
+
+export function updateLabCloseSchedule(
+  labId: number,
+  scheduleId: number,
+  data: LabCloseScheduleRequest,
+): Promise<LabCloseScheduleMutationResponse> {
+  return api.put<ApiResult<LabCloseScheduleMutationResponse>>(
+    `/lab-management/labs/${labId}/close-schedules/${scheduleId}`,
+    data,
+  ).then(res => res.data.data)
+}
+
+export function deleteLabCloseSchedule(labId: number, scheduleId: number): Promise<void> {
+  return api.delete<ApiResult<null>>(`/lab-management/labs/${labId}/close-schedules/${scheduleId}`).then(() => {})
 }
 
 // ==================== 实验室预约审核 ====================
