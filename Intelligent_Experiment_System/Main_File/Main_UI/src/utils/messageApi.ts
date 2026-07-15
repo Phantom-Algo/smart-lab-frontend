@@ -3,9 +3,15 @@ import type { ApiResult, PageResult } from './api'
 
 // ==================== 消息模板 ====================
 export interface MessageTemplateItem {
-  id: number; templateCode: string; templateName: string; messageType: string
-  titleTemplate: string; contentTemplate: string; contentFormat: 'TEXT' | 'MARKDOWN' | 'HTML'
-  status: number; createdAt: string
+  id: number; 
+  templateCode: string; 
+  templateName: string; 
+  messageType: string;
+  titleTemplate: string; 
+  contentTemplate: string; 
+  contentFormat: 'TEXT' | 'MARKDOWN' | 'HTML';
+  status: number; 
+  createdAt: string;
 }
 
 export interface MessageTemplatePageQuery {
@@ -31,7 +37,8 @@ export function deleteTemplate(id: number): Promise<void> {
 // ==================== 消息发布 ====================
 export interface PublishMessageRequest {
   messageType: string; targetType: string; targetUserIds?: number[]
-  templateCode?: string; title?: string; content?: string; actionUrl?: string
+  templateCode?: string; title?: string; content?: string; contentFormat?: string
+  actionUrl?: string
   params?: Record<string, string>
 }
 
@@ -41,4 +48,14 @@ export interface PublishMessageResult {
 
 export function publishMessage(data: PublishMessageRequest): Promise<PublishMessageResult> {
   return api.post<ApiResult<PublishMessageResult>>('/messages', data).then(r => r.data.data)
+}
+
+// ==================== 收件人搜索 ====================
+export interface RecipientSearchResult {
+  userId: number; personNo: string; personName: string; username: string; userType: number
+}
+
+export function searchRecipients(keyword: string, limit?: number): Promise<RecipientSearchResult[]> {
+  return api.get<ApiResult<RecipientSearchResult[]>>('/messages/recipients/search',
+    { params: { keyword, limit: limit || 20 } }).then(r => r.data.data)
 }

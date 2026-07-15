@@ -119,7 +119,7 @@ const childToParentMap: Record<string, string> = {
   'consumable-stock':'consumable','consumable-pick':'consumable','consumable-warn':'consumable',
   'safety-check':'safety','safety-hazard':'safety','safety-alarm':'safety','safety-ledger':'safety',
   'clean-schedule':'safety','clean-review':'safety',
-  'iot-monitor':'monitor','iot-threshold':'monitor','3d-manager':'monitor',
+  'iot-monitor':'monitor','iot-threshold':'monitor','sensor-device':'monitor','3d-manager':'monitor',
   'efficiency':'data','msg-template':'data','msg-publish':'data',
 }
 
@@ -138,7 +138,7 @@ const pageNameMap = {
   'consumable-stock':'耗材库存','consumable-pick':'领用审批','consumable-warn':'库存预警',
   'safety-check':'安全检查','safety-hazard':'隐患管理','safety-alarm':'报警记录','safety-ledger':'安全台账',
   'clean-schedule':'排班管理','clean-review':'检查评价',
-  'iot-monitor':'实时监测','iot-threshold':'阈值配置',
+  'iot-monitor':'实时监测','iot-threshold':'阈值配置','sensor-device':'传感器设备',
   '3d-manager':'场景映射管理','3d-show':'3D漫游',
   'efficiency':'效能看板',
   'msg-template':'消息模板','msg-publish':'消息发布','msg-inbox':'消息中心',
@@ -196,6 +196,7 @@ const navConfigs = {
       monitor:[
         { key:'iot-monitor',label:'物联网环境',desc:'传感器实时监测、告警管理' },
         { key:'iot-threshold',label:'阈值配置',desc:'安全阈值设置、传感器绑定' },
+        { key:'sensor-device',label:'传感器设备',desc:'传感器类型、检测数据项、实例管理' },
         { key:'3d-manager',label:'场景映射管理',desc:'实验室→3D场景的映射CRUD' },
         { key:'3d-show',label:'3D漫游',desc:'第一人称3D实验室实时漫游' },
       ],

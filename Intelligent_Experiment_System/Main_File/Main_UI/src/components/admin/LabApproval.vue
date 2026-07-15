@@ -1,97 +1,152 @@
 <template>
   <div class="la-page">
-    <div class="page-header">
-      <h2>预约审核</h2>
-      <p>审批教师/学生的实验室预约</p>
-    </div>
+    <header class="page-header">
+      <div>
+        <h2>预约审核</h2>
+        <p>审批教师与学生提交的实验室预约</p>
+      </div>
+      <button class="text-btn header-action" type="button" :disabled="loading" @click="loadData">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+          <path d="M21 3v6h-6" />
+        </svg>
+        刷新
+      </button>
+    </header>
 
-    <div class="stats-row">
-      <div class="stat-card">
-        <div class="stat-num highlight">{{ pendingCount }}</div>
-        <div class="stat-label">待审核</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-num green">{{ todayApproved }}</div>
-        <div class="stat-label">今日通过</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-num">{{ monthReservations }}</div>
-        <div class="stat-label">本月预约</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-num" :class="approvalRate >= 80 ? 'green' : 'orange'">{{ approvalRate }}%</div>
-        <div class="stat-label">通过率</div>
-      </div>
-    </div>
+    <section class="overview-grid">
+      <article class="stat-card">
+        <span class="stat-label">待审核</span>
+        <strong class="stat-blue">{{ pendingCount }}</strong>
+      </article>
+      <article class="stat-card">
+        <span class="stat-label">今日通过</span>
+        <strong class="stat-green">{{ todayApproved }}</strong>
+      </article>
+      <article class="stat-card">
+        <span class="stat-label">本月预约</span>
+        <strong>{{ monthReservations }}</strong>
+      </article>
+      <article class="stat-card">
+        <span class="stat-label">通过率</span>
+        <strong :class="approvalRate >= 80 ? 'stat-green' : 'stat-amber'">{{ approvalRate }}%</strong>
+      </article>
+    </section>
 
-    <div class="filter-bar">
+    <section class="filter-panel">
       <div class="filter-tabs">
-        <div v-for="t in statusTabs" :key="t.key" class="filter-tab" :class="{ active: activeStatus === t.key }" @click="activeStatus = t.key; pageNum = 1">
-          {{ t.label }}<span v-if="t.count !== undefined" class="tab-count">{{ t.count }}</span>
-        </div>
+        <button
+          v-for="t in statusTabs"
+          :key="t.key"
+          type="button"
+          class="filter-tab"
+          :class="{ active: activeStatus === t.key }"
+          @click="changeStatus(t.key)"
+        >
+          {{ t.label }}
+          <span v-if="t.count !== undefined" class="tab-count">{{ t.count }}</span>
+        </button>
       </div>
-      <input v-model="searchNo" placeholder="搜索预约单号..." class="search-input" @keyup.enter="pageNum = 1" />
-    </div>
-
-    <div class="card-list" v-if="pagedList.length > 0">
-      <div v-for="r in pagedList" :key="r.id" class="reserve-card" :class="'card-' + r.status">
-        <div class="card-left">
-          <div class="card-header">
-            <span class="status-badge" :class="'badge-' + r.status">{{ r.statusName }}</span>
-            <span class="apply-no">{{ r.applyNo }}</span>
-            <span class="apply-time">{{ r.createdAt }}</span>
-          </div>
-          <div class="card-body">
-            <div class="card-row">
-              <span class="ci-label">实验室</span>
-              <span class="ci-value lab-link">{{ r.labName }}（{{ r.labCode }}）</span>
-            </div>
-            <div class="card-row">
-              <span class="ci-label">申请人</span>
-              <span class="ci-value">
-                {{ r.applicantName }}
-                <span class="person-type" :class="r.applicantType === 1 ? 'type-stu' : 'type-tea'">{{ r.applicantTypeName }}</span>
-              </span>
-              <span class="ci-sep">|</span>
-              <span class="ci-label">日期</span>
-              <span class="ci-value">{{ r.reserveDate }}</span>
-              <span class="ci-sep">|</span>
-              <span class="ci-value">{{ r.timeSlot }}</span>
-            </div>
-            <div class="card-row">
-              <span class="ci-label">人数</span>
-              <span class="ci-value">{{ r.peopleCount }}人</span>
-              <span class="ci-sep">|</span>
-              <span class="ci-label">用途</span>
-              <span class="purpose-tag" :class="'purpose-' + r.purposeTag">{{ r.purposeTagName }}</span>
-            </div>
-            <div v-if="r.status === 'rejected' && r.rejectReason" class="reject-reason">
-              <span class="reason-label">驳回原因：</span>{{ r.rejectReason }}
-            </div>
-          </div>
+      <div class="filter-actions">
+        <div class="keyword-box">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.35-4.35" />
+          </svg>
+          <input v-model="searchNo" placeholder="搜索预约单号" @keyup.enter="submitSearch" />
         </div>
-        <div class="card-right">
-          <template v-if="r.status === 'pending'">
-            <button class="btn-reject" @click="openReject(r)">驳回</button>
-            <button class="btn-approve" @click="openApprove(r)">审核通过</button>
-          </template>
-          <template v-else-if="r.status === 'approved'">
-            <button class="btn-revoke" @click="revokeApproval(r)">撤销审核</button>
-          </template>
-          <span v-else class="final-text">{{ r.status === 'rejected' ? '已驳回' : '已取消' }}</span>
-        </div>
+        <button class="ghost-btn" type="button" :disabled="loading" @click="submitSearch">查询</button>
       </div>
-    </div>
+    </section>
 
-    <div v-else class="empty-state">
-      <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="#ccc" stroke-width="1.2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
-      <p>暂无预约记录</p>
-    </div>
+    <section class="table-section">
+      <div class="table-toolbar">
+        <span>共 {{ totalRecordCount }} 条预约</span>
+        <span v-if="loading" class="loading-text">加载中...</span>
+      </div>
 
-    <div class="pagination" v-if="filteredList.length > pageSize">
-      <button :disabled="pageNum <= 1" @click="pageNum--">上一页</button>
+      <div v-if="loadError" class="state-box error">{{ loadError }}</div>
+      <div v-else class="table-wrap">
+        <table class="approval-table">
+          <thead>
+            <tr>
+              <th>状态</th>
+              <th>预约单号</th>
+              <th>实验室</th>
+              <th>申请人</th>
+              <th>预约时间</th>
+              <th>人数</th>
+              <th>用途</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="loading">
+              <td colspan="8" class="empty-cell">加载中...</td>
+            </tr>
+            <tr v-else-if="pagedList.length === 0">
+              <td colspan="8" class="empty-cell">{{ emptyText }}</td>
+            </tr>
+            <template v-else>
+              <tr v-for="r in pagedList" :key="r.id">
+                <td>
+                  <span class="status-badge" :class="'badge-' + r.status">{{ r.statusName }}</span>
+                </td>
+                <td>
+                  <div class="stack-cell">
+                    <strong>{{ r.applyNo }}</strong>
+                    <span>{{ r.createdAt }}</span>
+                  </div>
+                </td>
+                <td>
+                  <div class="stack-cell lab-cell">
+                    <strong>{{ r.labName }}</strong>
+                    <span>{{ r.labCode || '-' }}</span>
+                  </div>
+                </td>
+                <td>
+                  <div class="applicant-cell">
+                    <span>{{ r.applicantName }}</span>
+                    <span class="person-type" :class="r.applicantType === 1 ? 'type-stu' : 'type-tea'">{{ r.applicantTypeName }}</span>
+                  </div>
+                </td>
+                <td>
+                  <div class="stack-cell">
+                    <strong>{{ r.reserveDate }}</strong>
+                    <span>{{ r.timeSlot }}</span>
+                  </div>
+                </td>
+                <td>{{ r.peopleCount }} 人</td>
+                <td>
+                  <div class="purpose-cell">
+                    <span class="purpose-tag" :class="'purpose-' + r.purposeTag">{{ r.purposeTagName }}</span>
+                    <span class="purpose-text">{{ r.purpose || '-' }}</span>
+                    <span v-if="r.status === 'rejected' && r.rejectReason" class="reject-reason">驳回原因：{{ r.rejectReason }}</span>
+                  </div>
+                </td>
+                <td>
+                  <div class="row-actions">
+                    <template v-if="r.status === 'pending'">
+                      <button class="link-btn danger" type="button" :disabled="actionLoading" @click="openReject(r)">驳回</button>
+                      <button class="link-btn" type="button" :disabled="actionLoading" @click="openApprove(r)">通过</button>
+                    </template>
+                    <template v-else-if="r.status === 'approved' && isMockMode">
+                      <button class="link-btn danger" type="button" @click="revokeApproval(r)">撤销</button>
+                    </template>
+                    <span v-else class="final-text">{{ r.statusName }}</span>
+                  </div>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <div class="pagination" v-if="totalRecordCount > pageSize">
+      <button :disabled="pageNum <= 1 || loading" @click="goPage(pageNum - 1)">上一页</button>
       <span>{{ pageNum }} / {{ totalPages }}</span>
-      <button :disabled="pageNum >= totalPages" @click="pageNum++">下一页</button>
+      <button :disabled="pageNum >= totalPages || loading" @click="goPage(pageNum + 1)">下一页</button>
     </div>
 
     <!-- 审核通过弹窗 -->
@@ -100,21 +155,26 @@
         <div v-if="showApprove" class="modal-overlay" @click.self="showApprove = false">
           <div class="modal-panel">
             <div class="modal-header">
-              <h3>确认审核通过</h3>
-              <button class="modal-close" @click="showApprove = false"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+              <div>
+                <h3>确认审核通过</h3>
+                <p>通过后申请人可按预约时段使用实验室</p>
+              </div>
+              <button class="modal-close" type="button" @click="showApprove = false">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
             </div>
             <div class="modal-body">
               <div class="confirm-info">
-                <div class="ci-row"><span>实验室</span><span>{{ currentReservation?.labName }}</span></div>
-                <div class="ci-row"><span>申请人</span><span>{{ currentReservation?.applicantName }}（{{ currentReservation?.applicantTypeName }}）</span></div>
-                <div class="ci-row"><span>日期</span><span>{{ currentReservation?.reserveDate }}</span></div>
-                <div class="ci-row"><span>时段</span><span>{{ currentReservation?.timeSlot }}</span></div>
-                <div class="ci-row"><span>人数</span><span>{{ currentReservation?.peopleCount }}人</span></div>
+                <div class="confirm-row"><span>实验室</span><strong>{{ currentReservation?.labName }}</strong></div>
+                <div class="confirm-row"><span>申请人</span><strong>{{ currentReservation?.applicantName }}（{{ currentReservation?.applicantTypeName }}）</strong></div>
+                <div class="confirm-row"><span>日期</span><strong>{{ currentReservation?.reserveDate }}</strong></div>
+                <div class="confirm-row"><span>时段</span><strong>{{ currentReservation?.timeSlot }}</strong></div>
+                <div class="confirm-row"><span>人数</span><strong>{{ currentReservation?.peopleCount }} 人</strong></div>
               </div>
             </div>
             <div class="modal-footer">
-              <button class="modal-btn cancel" @click="showApprove = false">取消</button>
-              <button class="modal-btn primary" @click="doApprove">确认通过</button>
+              <button class="modal-btn cancel" type="button" @click="showApprove = false">取消</button>
+              <button class="modal-btn primary" type="button" @click="doApprove" :disabled="actionLoading">确认通过</button>
             </div>
           </div>
         </div>
@@ -127,8 +187,13 @@
         <div v-if="showReject" class="modal-overlay" @click.self="showReject = false">
           <div class="modal-panel">
             <div class="modal-header">
-              <h3>驳回预约</h3>
-              <button class="modal-close" @click="showReject = false"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+              <div>
+                <h3>驳回预约</h3>
+                <p>驳回原因会同步给申请人</p>
+              </div>
+              <button class="modal-close" type="button" @click="showReject = false">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
             </div>
             <div class="modal-body">
               <div class="form-g">
@@ -137,12 +202,12 @@
               </div>
               <div class="quick-reasons">
                 <span class="qr-label">快捷填写：</span>
-                <button v-for="r in quickReasons" :key="r" class="qr-btn" @click="rejectForm.reason = r">{{ r }}</button>
+                <button v-for="r in quickReasons" :key="r" class="qr-btn" type="button" @click="rejectForm.reason = r">{{ r }}</button>
               </div>
             </div>
             <div class="modal-footer">
-              <button class="modal-btn cancel" @click="showReject = false">取消</button>
-              <button class="modal-btn danger" @click="doReject" :disabled="!rejectForm.reason.trim()">确认驳回</button>
+              <button class="modal-btn cancel" type="button" @click="showReject = false">取消</button>
+              <button class="modal-btn danger" type="button" @click="doReject" :disabled="!rejectForm.reason.trim() || actionLoading">确认驳回</button>
             </div>
           </div>
         </div>
@@ -153,21 +218,19 @@
 
 <script setup lang="ts">
 import { ref, computed, reactive, onBeforeUnmount, onMounted } from 'vue'
-import api from '../../utils/api'
 import { isMockMode } from '../../stores/authStore'
+import {
+  approveReservation,
+  getReservationPage,
+  getReservationStats,
+  type ReservationItem,
+  type ReservationStats,
+  type ReservationStatus,
+} from '../../utils/labApi'
 
-type ReservationStatus = 'pending' | 'approved' | 'rejected' | 'cancelled'
+type StatusTabKey = ReservationStatus | 'all'
 
-interface Reservation {
-  id: number; applyNo: string; labId: number; labName: string; labCode: string
-  applicantId: number; applicantName: string; applicantType: number; applicantTypeName: string
-  reserveDate: string; timeSlot: string; peopleCount: number
-  purpose: string; purposeTag: string; purposeTagName: string
-  status: ReservationStatus; statusName: string
-  rejectReason?: string; createdAt: string; approvedAt?: string
-}
-
-const MOCK_RESERVATIONS: Reservation[] = [
+const MOCK_RESERVATIONS: ReservationItem[] = [
   { id:1, applyNo:'LAB-RSV-001', labId:1, labName:'B103 物理实验室', labCode:'LAB-2024-B103',
     applicantId:201, applicantName:'李老师', applicantType:2, applicantTypeName:'教师',
     reserveDate:'2026-07-12', timeSlot:'09:00~12:00', peopleCount:15,
@@ -202,37 +265,49 @@ const MOCK_RESERVATIONS: Reservation[] = [
     status:'cancelled', statusName:'已取消', createdAt:'2026-07-05 09:00' },
 ]
 
-const reservations = ref<Reservation[]>([])
-
-function mapReservationStatus(status: unknown): ReservationStatus {
-  if (status === 'pending' || status === 1) return 'pending'
-  if (status === 'approved' || status === 2) return 'approved'
-  if (status === 'rejected' || status === 3) return 'rejected'
-  return 'cancelled'
-}
-
-function parsePeopleCount(purpose: string | undefined): number {
-  if (!purpose) return 1
-  const matched = purpose.match(/使用人数[:：]\s*(\d+)/)
-  return matched ? Number(matched[1]) : 1
-}
+const reservations = ref<ReservationItem[]>([])
+const apiStats = ref<ReservationStats | null>(null)
+const apiTotal = ref(0)
+const apiPages = ref(1)
+const loading = ref(false)
+const actionLoading = ref(false)
+const loadError = ref('')
 
 async function loadData() {
-  if (isMockMode.value) { reservations.value = [...MOCK_RESERVATIONS]; return }
+  loadError.value = ''
   try {
-    const res = await api.get('/lab-management/reservations', { params: { page: 1, pageSize: 100 } })
-    const records = res.data?.data?.records || []
-    reservations.value = records.map((r: any) => ({
-        id: r.id || 0, applyNo: r.reservationNo || r.applyNo || '', labId: r.labId || 0, labName: r.labName || '', labCode: '',
-        applicantId: r.applicantId || 0, applicantName: r.applicantName || '', applicantType: r.applicantType || 1, applicantTypeName: r.applicantType === 2 ? '教师' : '学生',
-        reserveDate: r.reservationDate || r.reserveDate || '', timeSlot: r.startTime && r.endTime ? r.startTime + '~' + r.endTime : (r.timeSlot || ''),
-        peopleCount: r.peopleCount || parsePeopleCount(r.purpose),
-        purpose: r.purpose || '', purposeTag: r.purposeTag || 'other', purposeTagName: r.purposeTagName || '其他',
-        status: mapReservationStatus(r.reservationStatus),
-        statusName: r.reservationStatusDesc || r.statusName || '待审核',
-        rejectReason: r.rejectReason || r.cancelReason, createdAt: r.createdAt || '', approvedAt: r.approvedAt || r.approveTime
-      }))
-  } catch (e) { console.error('LabApproval loadData error:', e) }
+    if (isMockMode.value) {
+      reservations.value = [...MOCK_RESERVATIONS]
+      apiStats.value = null
+      apiTotal.value = reservations.value.length
+      apiPages.value = Math.ceil(reservations.value.length / pageSize) || 1
+      return
+    }
+
+    loading.value = true
+    const [page, stats] = await Promise.all([
+      getReservationPage({
+        page: pageNum.value,
+        pageSize,
+        status: activeStatus.value === 'all' ? undefined : activeStatus.value,
+        reservationNo: searchNo.value.trim() || undefined,
+      }),
+      getReservationStats(),
+    ])
+    reservations.value = page.records
+    apiTotal.value = page.total
+    apiPages.value = page.pages || 1
+    apiStats.value = stats
+    if (pageNum.value > apiPages.value) {
+      pageNum.value = apiPages.value
+      await loadData()
+    }
+  } catch (e: any) {
+    console.error('LabApproval loadData error:', e)
+    loadError.value = e.message || '加载预约记录失败'
+  } finally {
+    loading.value = false
+  }
 }
 
 function handleRefreshRequest(): void {
@@ -250,47 +325,94 @@ onBeforeUnmount(() => {
   window.removeEventListener('unity-biz-event', handleRefreshRequest)
 })
 
-const activeStatus = ref<ReservationStatus | 'all'>('all')
+const activeStatus = ref<StatusTabKey>('all')
 const searchNo = ref('')
 const pageNum = ref(1)
 const pageSize = 6
 
-const statusTabs = computed(() => [
-  { key: 'all' as const, label: '全部', count: reservations.value.length },
-  { key: 'pending' as const, label: '待审核', count: reservations.value.filter(r => r.status === 'pending').length },
-  { key: 'approved' as const, label: '已通过', count: reservations.value.filter(r => r.status === 'approved').length },
-  { key: 'rejected' as const, label: '已驳回', count: reservations.value.filter(r => r.status === 'rejected').length },
-  { key: 'cancelled' as const, label: '已取消', count: reservations.value.filter(r => r.status === 'cancelled').length },
-])
+const statusConfig: Array<{ key: StatusTabKey; label: string }> = [
+  { key: 'all', label: '全部' },
+  { key: 'pending', label: '待审核' },
+  { key: 'approved', label: '已通过' },
+  { key: 'rejected', label: '已驳回' },
+  { key: 'cancelled', label: '已取消' },
+  { key: 'checkedIn', label: '已签到' },
+  { key: 'absent', label: '已爽约' },
+]
+
+const statusTabs = computed(() => statusConfig.map(item => ({
+  ...item,
+  count: item.key === 'all' ? totalReservationCount.value : statusCount(item.key),
+})))
 
 const filteredList = computed(() => {
+  if (!isMockMode.value) return reservations.value
   let list = reservations.value
   if (activeStatus.value !== 'all') list = list.filter(r => r.status === activeStatus.value)
   if (searchNo.value) list = list.filter(r => r.applyNo.toLowerCase().includes(searchNo.value.toLowerCase()))
   return list
 })
-const totalPages = computed(() => Math.ceil(filteredList.value.length / pageSize) || 1)
-const pagedList = computed(() => filteredList.value.slice((pageNum.value - 1) * pageSize, pageNum.value * pageSize))
+const totalPages = computed(() => isMockMode.value ? Math.ceil(filteredList.value.length / pageSize) || 1 : apiPages.value)
+const pagedList = computed(() => isMockMode.value ? filteredList.value.slice((pageNum.value - 1) * pageSize, pageNum.value * pageSize) : reservations.value)
+const totalRecordCount = computed(() => isMockMode.value ? filteredList.value.length : apiTotal.value)
+const totalReservationCount = computed(() => {
+  if (isMockMode.value) return reservations.value.length
+  const counts = apiStats.value?.statusCounts ?? {}
+  return Object.values(counts).reduce((sum, value) => sum + (value ?? 0), 0)
+})
 
-const pendingCount = computed(() => reservations.value.filter(r => r.status === 'pending').length)
+const pendingCount = computed(() => isMockMode.value ? reservations.value.filter(r => r.status === 'pending').length : (apiStats.value?.pendingCount ?? 0))
 const todayApproved = computed(() => {
+  if (!isMockMode.value) return apiStats.value?.todayApproved ?? 0
   const today = new Date().toISOString().slice(0, 10)
   return reservations.value.filter(r => r.status === 'approved' && r.approvedAt?.startsWith(today)).length
 })
-const monthReservations = computed(() => reservations.value.length)
+const monthReservations = computed(() => isMockMode.value ? reservations.value.length : (apiStats.value?.monthReservations ?? 0))
 const approvalRate = computed(() => {
-  const decided = reservations.value.filter(r => r.status === 'approved' || r.status === 'rejected').length
-  return decided === 0 ? 0 : Math.round(reservations.value.filter(r => r.status === 'approved').length / decided * 100)
+  if (!isMockMode.value) return apiStats.value?.approvalRate ?? 0
+  const approvedStatuses: ReservationStatus[] = ['approved', 'checkedIn', 'absent']
+  const approved = reservations.value.filter(r => approvedStatuses.includes(r.status)).length
+  const rejected = reservations.value.filter(r => r.status === 'rejected').length
+  return approved + rejected === 0 ? 0 : Math.round(approved / (approved + rejected) * 100)
 })
+const emptyText = computed(() => loading.value ? '预约记录加载中...' : (loadError.value || '暂无预约记录'))
 
 const showApprove = ref(false)
 const showReject = ref(false)
-const currentReservation = ref<Reservation | null>(null)
+const currentReservation = ref<ReservationItem | null>(null)
 const rejectForm = reactive({ reason: '' })
 const quickReasons = ['该时段已被占用', '人数超出实验室容量', '实验室正在维护中', '预约用途不符合规定']
 
-function openApprove(r: Reservation) { currentReservation.value = r; showApprove.value = true }
-function openReject(r: Reservation) { currentReservation.value = r; rejectForm.reason = ''; showReject.value = true }
+function statusCount(status: StatusTabKey): number {
+  if (status === 'all') return totalReservationCount.value
+  if (isMockMode.value) return reservations.value.filter(r => r.status === status).length
+  return apiStats.value?.statusCounts[status] ?? 0
+}
+
+function changeStatus(status: StatusTabKey): void {
+  activeStatus.value = status
+  pageNum.value = 1
+  void loadData()
+}
+
+function submitSearch(): void {
+  pageNum.value = 1
+  void loadData()
+}
+
+function goPage(page: number): void {
+  const nextPage = Math.min(Math.max(page, 1), totalPages.value)
+  if (nextPage === pageNum.value) return
+  pageNum.value = nextPage
+  void loadData()
+}
+
+function refreshAfterMutation(): void {
+  void loadData()
+}
+
+function openApprove(r: ReservationItem) { currentReservation.value = r; showApprove.value = true }
+function openReject(r: ReservationItem) { currentReservation.value = r; rejectForm.reason = ''; showReject.value = true }
 async function doApprove() {
   if (!currentReservation.value) return
   if (isMockMode.value) {
@@ -299,12 +421,12 @@ async function doApprove() {
     showApprove.value = false; return
   }
   try {
-    await api.patch(`/lab-management/reservations/${currentReservation.value.applyNo}/approve`, {
-      approved: true,
-      approveComment: '审核通过'
-    })
-    showApprove.value = false; loadData()
+    actionLoading.value = true
+    await approveReservation({ reservationNo: currentReservation.value.applyNo, action: 'approve' })
+    showApprove.value = false
+    refreshAfterMutation()
   } catch (e: any) { alert(e.message || '操作失败') }
+  finally { actionLoading.value = false }
 }
 async function doReject() {
   if (!currentReservation.value || !rejectForm.reason.trim()) return
@@ -314,127 +436,689 @@ async function doReject() {
     showReject.value = false; return
   }
   try {
-    await api.patch(`/lab-management/reservations/${currentReservation.value.applyNo}/approve`, {
-      approved: false,
-      approveComment: rejectForm.reason.trim()
+    actionLoading.value = true
+    await approveReservation({
+      reservationNo: currentReservation.value.applyNo,
+      action: 'reject',
+      rejectReason: rejectForm.reason.trim(),
     })
-    showReject.value = false; loadData()
+    showReject.value = false
+    refreshAfterMutation()
   } catch (e: any) { alert(e.message || '操作失败') }
+  finally { actionLoading.value = false }
 }
-function revokeApproval(r: Reservation) {
+function revokeApproval(r: ReservationItem) {
   if (confirm(`确定撤销对「${r.labName}」的审批通过吗？`)) { r.status = 'pending'; r.statusName = '待审核'; r.approvedAt = undefined }
 }
 </script>
 
 <style scoped>
-.la-page { height:100%; overflow-y:auto; padding:20px 24px }
-.page-header { margin-bottom:16px }
-.page-header h2 { font-size:20px; font-weight:600; color:#1a1a2e; margin:0 }
-.page-header p { margin:4px 0 0; font-size:13px; color:#999 }
+.la-page {
+  height: 100%;
+  overflow-y: auto;
+  padding: 22px 24px 28px;
+  color: #172033;
+}
 
-.stats-row { display:flex; gap:12px; margin-bottom:16px; flex-wrap:wrap }
-.stat-card { background:rgba(255,255,255,.65); backdrop-filter:blur(10px); border:1px solid rgba(0,0,0,.06); border-radius:12px; padding:14px 20px; min-width:100px; text-align:center }
-.stat-num { font-size:24px; font-weight:700; color:#1a1a2e; line-height:1.1 }
-.stat-label { font-size:12px; color:#999; margin-top:2px }
-.highlight { color:#1a73e8 }
-.green { color:#27ae60 }
-.orange { color:#f39c12 }
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
 
-.filter-bar { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; gap:12px; flex-wrap:wrap }
-.filter-tabs { display:flex; gap:4px; background:rgba(255,255,255,.4); border-radius:10px; padding:4px }
-.filter-tab { padding:8px 16px; border-radius:8px; font-size:13px; color:#666; cursor:pointer; transition:all .15s; display:flex; align-items:center; gap:6px; user-select:none; white-space:nowrap }
-.filter-tab:hover { color:#333; background:rgba(0,0,0,.03) }
-.filter-tab.active { background:#fff; color:#1a73e8; font-weight:600; box-shadow:0 1px 3px rgba(0,0,0,.08) }
-.tab-count { font-size:11px; background:rgba(0,0,0,.06); padding:1px 7px; border-radius:10px; color:#888 }
-.filter-tab.active .tab-count { background:rgba(26,115,232,.1); color:#1a73e8 }
-.search-input { padding:8px 12px; border:1px solid rgba(0,0,0,.1); border-radius:10px; font-size:13px; outline:none; width:180px; background:rgba(255,255,255,.7) }
+.page-header h2 {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 700;
+}
 
-.card-list { display:flex; flex-direction:column; gap:12px }
-.reserve-card { background:rgba(255,255,255,.55); backdrop-filter:blur(10px); border-radius:12px; border:1px solid rgba(0,0,0,.04); display:flex; align-items:stretch; overflow:hidden }
-.reserve-card.card-pending { border-left:3px solid #1a73e8 }
-.reserve-card.card-approved { border-left:3px solid #27ae60 }
-.reserve-card.card-rejected { border-left:3px solid #e74c3c }
-.reserve-card.card-cancelled { border-left:3px solid #ccc; opacity:.65 }
+.page-header p,
+.modal-header p {
+  margin: 5px 0 0;
+  font-size: 13px;
+  color: #6b7280;
+}
 
-.card-left { flex:1; padding:16px 20px; min-width:0 }
-.card-right { display:flex; flex-direction:column; align-items:flex-end; justify-content:center; gap:8px; padding:16px 20px; flex-shrink:0; min-width:130px; border-left:1px solid rgba(0,0,0,.04) }
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(140px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
 
-.card-header { display:flex; align-items:center; gap:10px; margin-bottom:10px }
-.status-badge { padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600 }
-.badge-pending { background:rgba(26,115,232,.1); color:#1a73e8 }
-.badge-approved { background:rgba(39,174,96,.1); color:#27ae60 }
-.badge-rejected { background:rgba(231,76,60,.1); color:#e74c3c }
-.badge-cancelled { background:rgba(0,0,0,.05); color:#999 }
-.apply-no { font-size:13px; font-weight:600; color:#1a1a2e }
-.apply-time { font-size:12px; color:#999; margin-left:auto }
+.stat-card {
+  padding: 14px 14px 13px;
+  background: #fff;
+  border: 1px solid #e7eaf0;
+  border-radius: 8px;
+}
 
-.card-body { display:flex; flex-direction:column; gap:5px }
-.card-row { display:flex; align-items:baseline; gap:6px; font-size:13px; flex-wrap:wrap }
-.ci-label { color:#999; min-width:40px; flex-shrink:0 }
-.ci-value { color:#333 }
-.lab-link { color:#1a73e8; font-weight:500 }
-.person-type { padding:1px 6px; border-radius:3px; font-size:11px; margin-left:4px }
-.type-stu { background:rgba(76,175,80,.1); color:#2e7d32 }
-.type-tea { background:rgba(26,115,232,.1); color:#1557b0 }
-.ci-sep { color:#ddd }
+.stat-card strong {
+  display: block;
+  margin-top: 7px;
+  font-size: 24px;
+  line-height: 1;
+  color: #111827;
+}
 
-.purpose-tag { padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600 }
-.purpose-teaching { background:rgba(76,175,80,.1); color:#2e7d32 }
-.purpose-research { background:rgba(26,115,232,.1); color:#1557b0 }
-.purpose-exam { background:rgba(243,156,18,.1); color:#e67e22 }
-.purpose-other { background:rgba(0,0,0,.05); color:#888 }
+.stat-label {
+  font-size: 12px;
+  color: #697386;
+}
 
-.reject-reason { margin-top:6px; padding:8px 12px; background:rgba(231,76,60,.04); border-radius:8px; font-size:12px; color:#c0392b; line-height:1.5 }
-.reason-label { font-weight:600 }
+.stat-blue {
+  color: #2563eb !important;
+}
 
-.btn-approve { padding:9px 20px; border:none; border-radius:10px; background:linear-gradient(135deg,#27ae60,#2ecc71); color:#fff; font-size:13px; font-weight:500; cursor:pointer; white-space:nowrap }
-.btn-approve:hover { box-shadow:0 4px 12px rgba(39,174,96,.3) }
-.btn-reject { padding:9px 20px; border:1px solid rgba(231,76,60,.3); border-radius:10px; background:#fff; color:#e74c3c; font-size:13px; cursor:pointer; white-space:nowrap }
-.btn-reject:hover { background:rgba(231,76,60,.05); border-color:#e74c3c }
-.btn-revoke { padding:8px 16px; border:1px solid rgba(0,0,0,.1); border-radius:8px; background:#fff; color:#888; font-size:12px; cursor:pointer }
-.btn-revoke:hover { border-color:#e74c3c; color:#e74c3c }
-.final-text { font-size:12px; color:#bbb }
+.stat-green {
+  color: #137a43 !important;
+}
 
-.empty-state { display:flex; flex-direction:column; align-items:center; padding:60px 0; color:#ccc; gap:8px }
-.empty-state p { margin:0; font-size:15px; color:#bbb }
+.stat-amber {
+  color: #9a5b00 !important;
+}
 
-.pagination { display:flex; align-items:center; justify-content:center; gap:10px; margin-top:18px }
-.pagination button { padding:7px 16px; border:1px solid rgba(0,0,0,.1); border-radius:8px; background:#fff; font-size:13px; cursor:pointer; color:#555 }
-.pagination button:disabled { opacity:.4; cursor:not-allowed }
-</style>
+.filter-panel,
+.table-section {
+  background: #fff;
+  border: 1px solid #e6e9ef;
+  border-radius: 8px;
+}
 
-<style>
-.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; z-index:1100; padding:20px }
-.modal-panel { background:#fff; border-radius:16px; width:100%; max-width:480px; max-height:85vh; display:flex; flex-direction:column; box-shadow:0 16px 48px rgba(0,0,0,.15) }
-.modal-header { display:flex; align-items:center; justify-content:space-between; padding:20px 24px 0 }
-.modal-header h3 { margin:0; font-size:17px; font-weight:600; color:#1a1a2e }
-.modal-close { background:none; border:none; cursor:pointer; color:#aaa; padding:4px; border-radius:6px }
-.modal-close:hover { background:rgba(0,0,0,.05); color:#333 }
-.modal-body { padding:20px 24px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:14px }
-.modal-footer { display:flex; justify-content:flex-end; gap:10px; padding:16px 24px 20px; border-top:1px solid rgba(0,0,0,.06) }
-.modal-btn { padding:10px 24px; border-radius:10px; font-size:14px; cursor:pointer; border:none; font-weight:500; transition:.2s }
-.modal-btn.cancel { background:rgba(0,0,0,.04); color:#666 }
-.modal-btn.cancel:hover { background:rgba(0,0,0,.08) }
-.modal-btn.primary { background:linear-gradient(135deg,#27ae60,#2ecc71); color:#fff }
-.modal-btn.primary:hover { box-shadow:0 4px 12px rgba(39,174,96,.3) }
-.modal-btn.danger { background:linear-gradient(135deg,#e74c3c,#ec7063); color:#fff }
-.modal-btn.danger:hover:not(:disabled) { box-shadow:0 4px 12px rgba(231,76,60,.3) }
-.modal-btn:disabled { opacity:.4; cursor:not-allowed }
-.confirm-info { background:rgba(0,0,0,.02); border-radius:10px; padding:12px 16px }
-.ci-row { display:flex; justify-content:space-between; padding:4px 0; font-size:13px; color:#555 }
-.ci-row span:first-child { color:#999 }
-.form-g { display:flex; flex-direction:column; gap:4px }
-.form-g label { font-size:13px; font-weight:500; color:#555 }
-.required { color:#e74c3c }
-.form-input { padding:10px 14px; border:1px solid rgba(0,0,0,.1); border-radius:10px; font-size:14px; outline:none; background:rgba(255,255,255,.7); font-family:inherit; width:100%; box-sizing:border-box }
-.form-input:focus { border-color:#1a73e8 }
-.form-textarea { resize:vertical; min-height:60px }
-.quick-reasons { display:flex; align-items:center; gap:6px; flex-wrap:wrap }
-.qr-label { font-size:11px; color:#999; white-space:nowrap }
-.qr-btn { padding:5px 10px; border:1px solid rgba(0,0,0,.1); border-radius:6px; background:#fff; font-size:11px; color:#666; cursor:pointer; white-space:nowrap }
-.qr-btn:hover { border-color:#1a73e8; color:#1a73e8 }
-.modal-fade-enter-active { transition:all .2s ease }
-.modal-fade-leave-active { transition:all .15s ease }
-.modal-fade-enter-from,.modal-fade-leave-to { opacity:0 }
-.modal-fade-enter-from .modal-panel { transform:scale(.94) translateY(12px) }
+.filter-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  margin-bottom: 14px;
+}
+
+.filter-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.filter-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: #536072;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.filter-tab:hover {
+  background: #f6f8fb;
+  color: #1f2937;
+}
+
+.filter-tab.active {
+  border-color: #c7d7fe;
+  background: #eef4ff;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.tab-count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #eef1f5;
+  color: #697386;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+
+.filter-tab.active .tab-count {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.filter-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.keyword-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 240px;
+  padding: 0 12px;
+  border: 1px solid #d8dde7;
+  border-radius: 7px;
+  background: #fff;
+  color: #7b8495;
+}
+
+.keyword-box input {
+  width: 100%;
+  height: 36px;
+  border: 0;
+  outline: 0;
+  font-size: 13px;
+  color: #1f2937;
+  background: transparent;
+}
+
+.keyword-box:focus-within,
+.form-input:focus {
+  border-color: #2563eb;
+}
+
+.table-section {
+  overflow: hidden;
+}
+
+.table-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid #eef1f5;
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.loading-text {
+  color: #2563eb;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.approval-table {
+  width: 100%;
+  min-width: 1040px;
+  border-collapse: collapse;
+}
+
+.approval-table th,
+.approval-table td {
+  padding: 13px 14px;
+  border-bottom: 1px solid #eef1f5;
+  text-align: left;
+  vertical-align: top;
+  font-size: 13px;
+}
+
+.approval-table th {
+  background: #fafbfc;
+  color: #5e6778;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.stack-cell,
+.purpose-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.stack-cell strong,
+.lab-cell strong {
+  color: #111827;
+  font-weight: 600;
+}
+
+.stack-cell span,
+.purpose-text {
+  color: #7b8495;
+  font-size: 12px;
+}
+
+.applicant-cell,
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.status-badge,
+.person-type,
+.purpose-tag {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge-pending {
+  background: #e8f0ff;
+  color: #1d4ed8;
+}
+
+.badge-approved,
+.badge-checkedIn {
+  background: #e8f7ef;
+  color: #137a43;
+}
+
+.badge-rejected {
+  background: #feeceb;
+  color: #b42318;
+}
+
+.badge-cancelled {
+  background: #f2f4f7;
+  color: #667085;
+}
+
+.badge-absent {
+  background: #fff7df;
+  color: #9a5b00;
+}
+
+.type-stu {
+  background: #e8f7ef;
+  color: #137a43;
+}
+
+.type-tea {
+  background: #eef2ff;
+  color: #3730a3;
+}
+
+.purpose-teaching {
+  background: #e8f7ef;
+  color: #137a43;
+}
+
+.purpose-research {
+  background: #eef2ff;
+  color: #3730a3;
+}
+
+.purpose-exam {
+  background: #fff7df;
+  color: #9a5b00;
+}
+
+.purpose-other {
+  background: #f2f4f7;
+  color: #667085;
+}
+
+.reject-reason {
+  color: #b42318;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.primary-btn,
+.ghost-btn,
+.text-btn,
+.link-btn,
+.modal-btn,
+.modal-close,
+.qr-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 7px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, color .15s;
+}
+
+.ghost-btn {
+  height: 38px;
+  padding: 0 13px;
+  border: 1px solid #d8dde7;
+  background: #fff;
+  color: #42526b;
+  font-size: 13px;
+}
+
+.text-btn {
+  border: 0;
+  background: transparent;
+  color: #2563eb;
+  font-size: 13px;
+}
+
+.header-action {
+  height: 34px;
+}
+
+.link-btn {
+  border: 0;
+  background: transparent;
+  color: #2563eb;
+  font-size: 13px;
+}
+
+.danger {
+  color: #dc2626;
+}
+
+.ghost-btn:hover:not(:disabled) {
+  border-color: #2563eb;
+  color: #2563eb;
+}
+
+.text-btn:hover:not(:disabled),
+.link-btn:hover:not(:disabled) {
+  color: #1d4ed8;
+}
+
+.danger:hover:not(:disabled) {
+  color: #b42318;
+}
+
+.ghost-btn:disabled,
+.text-btn:disabled,
+.link-btn:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.final-text {
+  color: #8a94a6;
+  font-size: 12px;
+}
+
+.empty-cell {
+  height: 128px;
+  color: #9aa3b2;
+  text-align: center !important;
+  vertical-align: middle !important;
+}
+
+.state-box {
+  padding: 36px 16px;
+  color: #7b8495;
+  text-align: center;
+}
+
+.state-box.error {
+  color: #b42318;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 14px;
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.pagination button {
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid #d8dde7;
+  border-radius: 7px;
+  background: #fff;
+  color: #42526b;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.pagination button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, .38);
+}
+
+.modal-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(480px, 96vw);
+  max-height: 85vh;
+  overflow: hidden;
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 22px 70px rgba(15, 23, 42, .22);
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 20px 22px 14px;
+  border-bottom: 1px solid #eef1f5;
+}
+
+.modal-header h3 {
+  margin: 0;
+  color: #111827;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.modal-close {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  background: transparent;
+  color: #7b8495;
+}
+
+.modal-close:hover {
+  background: #f3f5f8;
+  color: #111827;
+}
+
+.modal-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  padding: 18px 22px;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 22px 18px;
+  border-top: 1px solid #eef1f5;
+}
+
+.confirm-info {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #eef1f5;
+  border-radius: 8px;
+  background: #fafbfc;
+}
+
+.confirm-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  color: #697386;
+  font-size: 13px;
+}
+
+.confirm-row strong {
+  color: #1f2937;
+  font-weight: 600;
+  text-align: right;
+}
+
+.form-g {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.form-g label {
+  color: #4b5563;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.required {
+  color: #dc2626;
+}
+
+.form-input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 38px;
+  padding: 9px 10px;
+  border: 1px solid #d8dde7;
+  border-radius: 7px;
+  outline: 0;
+  background: #fff;
+  color: #1f2937;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.form-textarea {
+  min-height: 92px;
+  resize: vertical;
+}
+
+.quick-reasons {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.qr-label {
+  color: #7b8495;
+  font-size: 12px;
+}
+
+.qr-btn {
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid #d8dde7;
+  background: #fff;
+  color: #42526b;
+  font-size: 12px;
+}
+
+.qr-btn:hover {
+  border-color: #2563eb;
+  color: #2563eb;
+}
+
+.modal-btn {
+  height: 36px;
+  padding: 0 16px;
+  border: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.modal-btn.cancel {
+  border: 1px solid #d8dde7;
+  background: #fff;
+  color: #42526b;
+}
+
+.modal-btn.primary {
+  background: #137a43;
+  color: #fff;
+}
+
+.modal-btn.danger {
+  background: #dc2626;
+  color: #fff;
+}
+
+.modal-btn:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.modal-fade-enter-active {
+  transition: all .2s ease;
+}
+
+.modal-fade-leave-active {
+  transition: all .15s ease;
+}
+
+.modal-fade-enter-from,
+.modal-fade-leave-to {
+  opacity: 0;
+}
+
+.modal-fade-enter-from .modal-panel {
+  transform: scale(.96) translateY(10px);
+}
+
+@media (max-width: 1180px) {
+  .filter-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .filter-actions {
+    width: 100%;
+  }
+
+  .keyword-box {
+    width: 100%;
+  }
+}
+
+@media (max-width: 760px) {
+  .la-page {
+    padding: 16px;
+  }
+
+  .page-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .overview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .filter-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
 </style>
