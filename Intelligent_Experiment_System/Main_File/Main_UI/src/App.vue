@@ -635,10 +635,10 @@ function handleNavigate({ key, name }: { key: string; name: string }): void {
   } else if (key === 'device-search') {
     currentPage.value = 'device-search'
     currentPageName.value = name
-  } else if (key === 'device-borrow') {
+  } else if (key === 'my-borrow' || key === 'device-borrow') {
     currentPage.value = 'device-borrow'
     currentPageName.value = name
-  } else if (key === 'lab-reserve') {
+  } else if (key === 'my-reserve' || key === 'lab-reserve') {
     currentPage.value = 'lab-reserve'
     currentPageName.value = name
   } else if (key === 'lab-search') {

@@ -86,6 +86,7 @@
             </td>
             <td>{{ d.purchaseDate || '--' }}</td>
             <td class="action-cell">
+              <button v-if="d.deviceStatus === 1" class="row-btn stock-in" @click="handleStockIn(d.id)">入库</button>
               <button class="row-btn" @click="viewDevice(d.id)">查看</button>
               <button class="row-btn" @click="editDevice(d.id)">编辑</button>
             </td>
@@ -125,7 +126,7 @@
                   </select>
                 </div>
                 <div class="form-g"><label>设备状态</label>
-                  <select v-model="form.deviceStatus" class="form-input" :disabled="dialogMode === 'view' || dialogMode === 'create'">
+                  <select v-model="form.deviceStatus" class="form-input" disabled>
                     <option :value="1">采购待入库</option><option :value="2">闲置</option>
                     <option :value="3">借用中</option><option :value="4">维修中</option><option :value="5">报废</option>
                   </select>
@@ -174,7 +175,8 @@
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted } from 'vue'
 import type { DeviceStatus } from '../../utils/deviceApi'
-import { getDevicePage } from '../../utils/deviceApi'
+import { getDevicePage, createDevice, updateDevice, stockInDevice } from '../../utils/deviceApi'
+import api from '../../utils/api'
 
 // ========== 类型 ==========
 interface Device {
@@ -187,11 +189,14 @@ interface Device {
 
 interface SpecEntry { key: string; value: string }
 
-// ========== Mock 数据 ==========
-const labOptions = [
-  { id: 1, name: '化学分析实验室' }, { id: 2, name: '物理光学实验室' },
-  { id: 3, name: '生物培养实验室' }, { id: 4, name: '计算机综合实验室' },
-]
+const labOptions = ref<{ id: number; name: string }[]>([])
+
+async function loadLabOptions() {
+  try {
+    const res = await api.get('/lab-management/labs', { params: { pageNum: 1, pageSize: 200 } })
+    labOptions.value = (res.data?.data?.records || []).map((l: any) => ({ id: l.id, name: l.labName }))
+  } catch { labOptions.value = [] }
+}
 
 const devices = ref<Device[]>([])
 
@@ -207,7 +212,7 @@ async function loadDevices() {
     }))
   } catch (e) { console.error('DeviceLedger loadDevices error:', e) }
 }
-onMounted(() => { loadDevices() })
+onMounted(() => { loadDevices(); loadLabOptions() })
 
 // ========== 筛选 & 分页 ==========
 const searchNo = ref('')
@@ -246,6 +251,14 @@ const form = ref<DeviceForm | null>(null)
 const specEntries = ref<SpecEntry[]>([])
 const canSubmit = computed(() => form.value && form.value.deviceNo.trim() && form.value.name.trim() && form.value.labId > 0)
 
+async function handleStockIn(id: number) {
+  if (!confirm('确认将该设备入库并转为"闲置"状态？')) return
+  try {
+    await stockInDevice(id)
+    await loadDevices()
+  } catch (e) { console.error('入库失败:', e); alert('入库失败，请重试') }
+}
+
 function openCreateDialog() {
   form.value = { id:0, deviceNo:'', name:'', labId:0, deviceStatus:1, deviceStatusName:'采购待入库', purchaseDate:'', purchasePrice:null, expireDate:'', healthScore:100, remark:'' }
   specEntries.value = [{ key: '', value: '' }]
@@ -265,39 +278,41 @@ function openDetail(id: number, mode: 'view' | 'edit') {
   showDialog.value = true
 }
 
-function submitForm() {
+async function submitForm() {
   if (!form.value || !canSubmit.value) return
   const f = form.value
-  // 将 specEntries 组装为 JSON
   const specObj: Record<string, unknown> = {}
   specEntries.value.forEach(e => { if (e.key.trim()) specObj[e.key.trim()] = e.value.trim() })
 
-  if (dialogMode.value === 'create') {
-    devices.value.unshift({
-      id: Date.now(), deviceNo: f.deviceNo.trim(), name: f.name.trim(),
-      spec: Object.keys(specObj).length > 0 ? specObj : null,
-      labId: f.labId, labName: labOptions.find(l => l.id === f.labId)?.name || '',
-      purchaseDate: f.purchaseDate || null, purchasePrice: f.purchasePrice,
-      expireDate: f.expireDate || null, deviceStatus: 1, deviceStatusName: '采购待入库',
-      healthScore: 100, sensorId: null, remark: f.remark || null,
-    })
-  } else {
-    const idx = devices.value.findIndex(d => d.id === f.id)
-    if (idx >= 0) {
-      const dev = devices.value[idx]
-      dev.name = f.name.trim()
-      dev.spec = Object.keys(specObj).length > 0 ? specObj : null
-      dev.labId = f.labId
-      dev.labName = labOptions.find(l => l.id === f.labId)?.name || dev.labName
-      dev.deviceStatus = f.deviceStatus
-      dev.deviceStatusName = statusLabel(f.deviceStatus)
-      dev.purchaseDate = f.purchaseDate || null
-      dev.purchasePrice = f.purchasePrice
-      dev.expireDate = f.expireDate || null
-      dev.remark = f.remark || null
+  try {
+    if (dialogMode.value === 'create') {
+      await createDevice({
+        deviceNo: f.deviceNo.trim(),
+        name: f.name.trim(),
+        spec: Object.keys(specObj).length > 0 ? specObj : undefined,
+        labId: f.labId,
+        purchaseDate: f.purchaseDate || undefined,
+        purchasePrice: f.purchasePrice ?? undefined,
+        expireDate: f.expireDate || undefined,
+        remark: f.remark || undefined,
+      })
+    } else {
+      await updateDevice({
+        id: f.id,
+        name: f.name.trim(),
+        spec: Object.keys(specObj).length > 0 ? specObj : undefined,
+        labId: f.labId,
+        purchaseDate: f.purchaseDate || undefined,
+        purchasePrice: f.purchasePrice ?? undefined,
+        expireDate: f.expireDate || undefined,
+        remark: f.remark || undefined,
+      })
     }
+    showDialog.value = false
+    await loadDevices()
+  } catch (e: any) {
+    alert(e?.response?.data?.message || e?.message || '操作失败')
   }
-  showDialog.value = false
 }
 
 // ========== 工具函数 ==========
@@ -369,6 +384,8 @@ function statusLabel(s: DeviceStatus): string {
 .action-cell { display:flex; gap:6px }
 .row-btn { padding:4px 12px; border:1px solid rgba(0,0,0,.1); border-radius:6px; background:#fff; font-size:11px; color:#555; cursor:pointer }
 .row-btn:hover { border-color:#1a73e8; color:#1a73e8 }
+.row-btn.stock-in { border-color:#27ae60; color:#27ae60 }
+.row-btn.stock-in:hover { background:rgba(39,174,96,.06) }
 .empty-cell { text-align:center; color:#ccc; padding:40px }
 
 .pagination { display:flex; align-items:center; justify-content:center; gap:10px; margin-top:14px }

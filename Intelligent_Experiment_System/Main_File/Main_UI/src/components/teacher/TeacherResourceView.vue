@@ -21,9 +21,7 @@
         <span class="count-label">共 {{ filteredResources.length }} 个资源</span>
         <select v-model="courseFilter" class="filter-select">
           <option value="">全部课程</option>
-          <option value="化工2401班">化工2401班</option>
-          <option value="化工2402班">化工2402班</option>
-          <option value="应化2401班">应化2401班</option>
+          <option v-for="c in courseOptions" :key="c.id" :value="c.name">{{ c.name }}</option>
         </select>
       </div>
     </div>
@@ -87,32 +85,35 @@
             <div class="popup-body">
               <div class="form-group">
                 <label>所属课程班级</label>
-                <select class="form-input form-select">
-                  <option>有机化学实验 - 化工2401班</option>
-                  <option>有机化学实验 - 化工2402班</option>
-                  <option>有机化学实验 - 应化2401班</option>
+                <select v-model.number="uploadForm.courseId" class="form-input form-select">
+                  <option :value="0">请选择课程</option>
+                  <option v-for="c in courseOptions" :key="c.id" :value="c.id">{{ c.name }}</option>
                 </select>
               </div>
               <div class="form-group">
                 <label>资源名称</label>
-                <input class="form-input" placeholder="请输入资源名称" />
+                <input v-model="uploadForm.resourceName" class="form-input" placeholder="请输入资源名称" />
               </div>
               <div class="form-group">
                 <label>资源描述（可选）</label>
-                <textarea class="form-input form-textarea" placeholder="简要描述资源内容、适用实验等" rows="2"></textarea>
+                <textarea v-model="uploadForm.description" class="form-input form-textarea" placeholder="简要描述资源内容、适用实验等" rows="2"></textarea>
               </div>
               <div class="form-group">
                 <label>上传文件</label>
-                <div class="upload-zone">
+                <div class="upload-zone" @click="fileInput?.click()">
                   <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#aaa" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                  <span class="upload-hint">点击或拖拽文件到此处上传</span>
+                  <span v-if="uploadForm.file" class="upload-hint">{{ uploadForm.file.name }}（{{ (uploadForm.file.size / 1024).toFixed(1) }} KB）</span>
+                  <span v-else class="upload-hint">点击或拖拽文件到此处上传</span>
                   <span class="upload-types">支持 PDF、Word、PPT、Excel、视频（≤100MB）</span>
                 </div>
+                <input ref="fileInput" type="file" class="file-input-hidden" accept=".pdf,.ppt,.pptx,.xls,.xlsx,.doc,.docx,.mp4,.avi,.mov" @change="handleFileChange" style="display:none" />
               </div>
             </div>
             <div class="popup-footer">
               <button class="popup-btn cancel" @click="showUpload = false">取消</button>
-              <button class="popup-btn primary" @click="showUpload = false">确认上传</button>
+              <button class="popup-btn primary" @click="confirmUpload" :disabled="uploading || !uploadForm.courseId || !uploadForm.resourceName || !uploadForm.file">
+                {{ uploading ? '上传中…' : '确认上传' }}
+              </button>
             </div>
           </div>
         </div>
@@ -146,14 +147,25 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { getResourcePage, type ResourceItem } from '../../utils/teachingApi'
-import { isMockMode } from '../../stores/authStore'
+import { ref, computed, reactive, onMounted } from 'vue'
+import api from '../../utils/api'
+
+// 文件 input 引用
+const fileInput = ref<HTMLInputElement | null>(null)
 
 interface Resource {
   id: number; name: string; fileType: 'pdf' | 'ppt' | 'xlsx' | 'mp4' | 'docx'
   size: string; className: string; uploadDate: string
+  downloadUrl: string
 }
+
+// 上传表单
+const uploadForm = reactive({
+  courseId: 0,
+  resourceName: '',
+  description: '',
+  file: null as File | null,
+})
 
 const showUpload = ref(false)
 const showPreview = ref(false)
@@ -161,39 +173,61 @@ const previewResourceData = ref<Resource | null>(null)
 const searchText = ref('')
 const courseFilter = ref('')
 const typeFilter = ref('')
-
-const MOCK_RESOURCES: Resource[] = [
-  { id: 1, name: '有机化学实验指导书', fileType: 'pdf', size: '2.3 MB', className: '化工2401班', uploadDate: '7/5 上传' },
-  { id: 2, name: '酯化反应数据模板', fileType: 'xlsx', size: '156 KB', className: '化工2401班', uploadDate: '7/6 上传' },
-  { id: 3, name: '实验操作演示视频', fileType: 'mp4', size: '48 MB', className: '化工2401班', uploadDate: '7/7 上传' },
-  { id: 4, name: '有机化学安全规范', fileType: 'docx', size: '890 KB', className: '全部班级', uploadDate: '7/3 上传' },
-  { id: 5, name: '蒸馏实验操作规范', fileType: 'pdf', size: '1.8 MB', className: '化工2402班', uploadDate: '7/4 上传' },
-  { id: 6, name: '红外光谱解析指南', fileType: 'pdf', size: '4.2 MB', className: '应化2401班', uploadDate: '7/5 上传' },
-  { id: 7, name: '色谱分析基础讲义', fileType: 'ppt', size: '12 MB', className: '应化2401班', uploadDate: '7/2 上传' },
-  { id: 8, name: '熔点测定实验教程', fileType: 'pdf', size: '3.1 MB', className: '化工2402班', uploadDate: '7/1 上传' },
-]
-
 const resources = ref<Resource[]>([])
+const loadError = ref(false)
+const uploading = ref(false)
 
-async function loadResources() {
-  if (isMockMode.value) { resources.value = [...MOCK_RESOURCES]; return }
+// 课程选项（从 API 获取）
+const courseOptions = ref<{ id: number; name: string }[]>([])
+
+async function loadCourses() {
   try {
-    const res = await getResourcePage({ pageNum: 1, pageSize: 100 })
-    if (res.records.length > 0) {
-      resources.value = res.records.map(r => ({ id: r.id, name: r.resourceName, fileType: (r.resourceType?.toLowerCase() || 'pdf') as Resource['fileType'], size: r.fileSize ? `${(r.fileSize / 1024).toFixed(1)} KB` : '', className: r.courseName || '', uploadDate: r.createdAt?.slice(0, 10) || '' }))
-    } else resources.value = [...MOCK_RESOURCES]
-  } catch { /* API 不可用，请检查后端服务 */ }
+    const res = await api.get('/teaching/courses', { params: { pageNum: 1, pageSize: 100 } })
+    const records = res.data?.data?.records || []
+    courseOptions.value = records.map((r: any) => ({ id: r.courseId ?? r.id, name: r.courseName || '' }))
+  } catch {
+    courseOptions.value = []
+  }
 }
 
-onMounted(() => loadResources())
+async function loadResources() {
+  loadError.value = false
+  try {
+    const res = await api.get('/teaching/resources', { params: { pageNum: 1, pageSize: 100 } })
+    const records = res.data?.data?.records || []
+    resources.value = records.map((r: any) => ({
+      id: r.id,
+      name: r.resourceName || '',
+      fileType: (r.resourceTypeLabel || r.resourceType || 'pdf').toLowerCase() as Resource['fileType'],
+      size: r.fileSize ? formatFileSize(r.fileSize) : '',
+      className: r.courseName || '',
+      uploadDate: r.createdAt?.slice(0, 10) || '',
+      downloadUrl: r.downloadUrl || r.fileUrl || '',
+    }))
+  } catch (e) {
+    console.error('[TeacherResource] load error:', e)
+    loadError.value = true
+  }
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+}
+
+onMounted(() => {
+  loadCourses()
+  loadResources()
+})
 
 const typeTabs = computed(() => [
   { key: '', label: '全部', count: resources.value.length, icon: 'M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z M14 2v6h6' },
-  { key: 'pdf', label: 'PDF', count: resources.value.filter(r => r.fileType === 'pdf').length, icon: 'M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z M14 2v6h6 M16 13H8 M16 17H8' },
-  { key: 'ppt', label: 'PPT', count: resources.value.filter(r => r.fileType === 'ppt').length, icon: 'M2 4h20v16H2z M6 8h12 M6 12h12 M6 16h8' },
-  { key: 'xlsx', label: 'Excel', count: resources.value.filter(r => r.fileType === 'xlsx').length, icon: 'M3 3h18v18H3z M3 9h18 M3 15h18 M9 3v18' },
-  { key: 'docx', label: 'Word', count: resources.value.filter(r => r.fileType === 'docx').length, icon: 'M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z M14 2v6h6' },
-  { key: 'mp4', label: '视频', count: resources.value.filter(r => r.fileType === 'mp4').length, icon: 'M5 3l14 9-14 9V3z' },
+  { key: 'pdf', label: 'PDF', count: resources.value.filter(r => r.fileType === 'pdf').length, icon: '' },
+  { key: 'ppt', label: 'PPT', count: resources.value.filter(r => r.fileType === 'ppt').length, icon: '' },
+  { key: 'xlsx', label: 'Excel', count: resources.value.filter(r => r.fileType === 'xlsx').length, icon: '' },
+  { key: 'docx', label: 'Word', count: resources.value.filter(r => r.fileType === 'docx').length, icon: '' },
+  { key: 'mp4', label: '视频', count: resources.value.filter(r => r.fileType === 'mp4').length, icon: '' },
 ])
 
 const filteredResources = computed(() => {
@@ -203,7 +237,7 @@ const filteredResources = computed(() => {
     list = list.filter(r => r.name.toLowerCase().includes(q))
   }
   if (courseFilter.value) {
-    list = list.filter(r => r.className === courseFilter.value || r.className === '全部班级')
+    list = list.filter(r => r.className === courseFilter.value)
   }
   if (typeFilter.value) {
     list = list.filter(r => r.fileType === typeFilter.value)
@@ -211,8 +245,79 @@ const filteredResources = computed(() => {
   return list
 })
 
-function downloadResource(r: Resource): void {
-  alert(`下载「${r.name}」`)
+function handleFileChange(event: Event) {
+  const target = event.target as HTMLInputElement
+  if (target.files?.length) {
+    uploadForm.file = target.files[0]
+    if (!uploadForm.resourceName) {
+      uploadForm.resourceName = target.files[0].name.replace(/\.[^.]+$/, '')
+    }
+  }
+}
+
+async function confirmUpload() {
+  if (!uploadForm.courseId || !uploadForm.resourceName || !uploadForm.file) {
+    alert('请选择课程、填写资源名称、选择文件')
+    return
+  }
+  uploading.value = true
+  try {
+    // 1. 获取上传 token
+    const tokenRes = await api.post('/teaching/resources/upload-token', {
+      fileName: uploadForm.file.name,
+      fileSize: uploadForm.file.size,
+      contentType: uploadForm.file.type,
+    })
+    const uploadInfo = tokenRes.data?.data
+
+    // 2. 上传文件到对象存储（这步取决于实际存储后端；如果上传 token 返回的是直接上传 URL）
+    let fileUrl = ''
+    if (uploadInfo?.uploadMode === 'direct' && uploadInfo?.uploadUrl) {
+      const formData = new FormData()
+      formData.append('file', uploadForm.file)
+      // 使用默认的 axios 实例可能会加 Authorization header，根据实际情况调整
+      await api.post(uploadInfo.uploadUrl, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      fileUrl = uploadInfo.objectKey || ''
+    }
+
+    // 3. 创建资源记录
+    await api.post('/teaching/resources', {
+      courseId: uploadForm.courseId,
+      resourceName: uploadForm.resourceName,
+      resourceType: mapFileType(uploadForm.file.name),
+      fileUrl: fileUrl || uploadInfo?.objectKey || '',
+      fileSize: uploadForm.file.size,
+    })
+
+    showUpload.value = false
+    uploadForm.file = null
+    // 重置文件 input
+    const fileInput = document.querySelector('.file-input-hidden') as HTMLInputElement
+    if (fileInput) fileInput.value = ''
+
+    await loadResources()
+    alert('上传成功')
+  } catch (e: any) {
+    alert(e?.response?.data?.message || e?.message || '上传失败')
+  } finally {
+    uploading.value = false
+  }
+}
+
+function mapFileType(fileName: string): number {
+  const ext = fileName.split('.').pop()?.toLowerCase() || ''
+  const map: Record<string, number> = { pdf: 1, ppt: 2, pptx: 2, xls: 3, xlsx: 3, doc: 4, docx: 4, mp4: 5, avi: 5, mov: 5 }
+  return map[ext] || 1
+}
+
+async function downloadResource(r: Resource) {
+  if (r.downloadUrl) {
+    window.open(r.downloadUrl, '_blank')
+  } else {
+    alert('该资源暂无下载地址')
+  }
 }
 
 function previewResource(r: Resource): void {
@@ -222,16 +327,12 @@ function previewResource(r: Resource): void {
 
 async function deleteResource(r: Resource): Promise<void> {
   if (!confirm(`确认删除「${r.name}」吗？`)) return
-  if (isMockMode.value) {
-    const idx = resources.value.findIndex(x => x.id === r.id)
-    if (idx > -1) resources.value.splice(idx, 1)
-    return
-  }
   try {
-    const { deleteResource: apiDelete } = await import('../../utils/teachingApi')
-    await apiDelete(r.id)
+    await api.delete(`/teaching/resources/${r.id}`)
     await loadResources()
-  } catch (e: any) { alert(e.message || '删除失败') }
+  } catch (e: any) {
+    alert(e?.response?.data?.message || e?.message || '删除失败')
+  }
 }
 </script>
 
@@ -326,6 +427,7 @@ async function deleteResource(r: Resource): Promise<void> {
 .upload-zone:hover { border-color: #1a73e8; background: rgba(26,115,232,.02); }
 .upload-hint { font-size: 14px; color: #888; font-weight: 500; }
 .upload-types { font-size: 11px; color: #bbb; }
+.file-input-hidden { display: none; }
 
 .preview-body { padding: 24px; }
 .video-placeholder { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 60px 20px; background: rgba(0,0,0,.02); border-radius: 10px; color: #ccc; font-size: 14px; }
