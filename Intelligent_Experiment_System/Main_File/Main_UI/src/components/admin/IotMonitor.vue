@@ -7,6 +7,7 @@
       </div>
       <div class="header-right">
         <span class="update-time">最后更新 {{ lastUpdate }}</span>
+        <button class="refresh-btn" @click="doDetectOffline">检测离线传感器</button>
         <button class="refresh-btn" @click="doRefresh" :class="{ spinning: refreshing }">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
           刷新
@@ -37,7 +38,7 @@
         <div class="sensors">
           <div class="sensor-row" v-for="s in lab.sensors" :key="s.type">
             <div class="sensor-icon" :class="'icon-' + s.status">
-              <svg v-if="s.type==='temp'" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/></svg>
+              <svg v-if="s.type==='temperature'" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/></svg>
               <svg v-else-if="s.type==='humidity'" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>
               <svg v-else-if="s.type==='smoke'" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
               <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
@@ -46,7 +47,7 @@
             <span class="sensor-value" :class="'val-' + s.status">{{ s.displayValue }}</span>
             <div class="sensor-bar-wrap">
               <div class="sensor-bar" :class="'bar-' + s.status" :style="{ width: s.barPct + '%' }"></div>
-              <div class="sensor-threshold-marker" v-if="s.thresholdPct > 0" :style="{ left: s.thresholdPct + '%' }"></div>
+              <div class="sensor-threshold-marker" v-if="s.threshold > 0" :style="{ left: Math.min(100, (s.value / s.threshold) * 100) + '%' }"></div>
             </div>
             <span class="sensor-status" :class="'text-' + s.status">{{ statusLabel(s.status) }}</span>
           </div>
@@ -62,87 +63,30 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { detectOfflineSensors, getLabMonitorData, type LabMonitorData } from '../../utils/sensorApi'
+import { REALTIME_EVENT_NAME, type RealtimeEnvelope } from '../../utils/wsClient'
 
 type SensorStatus = 'normal' | 'warning' | 'alarm'
-type SensorType = 'temp' | 'humidity' | 'smoke' | 'gas'
 
-interface SensorData {
-  type: SensorType; label: string; value: number; unit: string
-  threshold: number; thresholdPct: number; status: SensorStatus
+interface SensorDisplay {
+  type: string; label: string; value: number; unit: string
+  threshold: number; status: SensorStatus
   displayValue: string; barPct: number
 }
 
-interface LabSensor {
+interface LabDisplay {
   id: number; labName: string; overallStatus: SensorStatus
-  updateAgo: string; sensors: SensorData[]
+  updateAgo: string; sensors: SensorDisplay[]
 }
 
-const labOptions = ['A305 分析化学实验室', 'B103 物理实验室', 'C202 计算机实验室', 'D108 生物培养实验室']
-
-function randomVal(base: number, range: number) { return +(base + (Math.random() - 0.5) * range).toFixed(1) }
-function ago() { return Math.floor(Math.random() * 30) + 1 + '秒前' }
-
-function generateData(): LabSensor[] {
-  return [
-    { id:1, labName:'A305 分析化学实验室', overallStatus:'normal', updateAgo:ago(), sensors:[
-      { type:'temp', label:'温度', value:randomVal(24,3), unit:'°C', threshold:35, thresholdPct:70, status:'normal', displayValue:'', barPct:0 },
-      { type:'humidity', label:'湿度', value:randomVal(52,8), unit:'%', threshold:70, thresholdPct:70, status:'normal', displayValue:'', barPct:0 },
-      { type:'smoke', label:'烟雾', value:randomVal(0.2,0.2), unit:'mg/m³', threshold:0.5, thresholdPct:50, status:'normal', displayValue:'', barPct:0 },
-      { type:'gas', label:'气体', value:randomVal(0.1,0.1), unit:'ppm', threshold:0.5, thresholdPct:50, status:'normal', displayValue:'', barPct:0 },
-    ]},
-    { id:2, labName:'B103 物理实验室', overallStatus:'warning', updateAgo:ago(), sensors:[
-      { type:'temp', label:'温度', value:randomVal(33,3), unit:'°C', threshold:35, thresholdPct:70, status:'warning', displayValue:'', barPct:0 },
-      { type:'humidity', label:'湿度', value:randomVal(45,6), unit:'%', threshold:70, thresholdPct:70, status:'normal', displayValue:'', barPct:0 },
-      { type:'smoke', label:'烟雾', value:randomVal(0.3,0.2), unit:'mg/m³', threshold:0.5, thresholdPct:50, status:'normal', displayValue:'', barPct:0 },
-      { type:'gas', label:'气体', value:randomVal(0.1,0.1), unit:'ppm', threshold:0.5, thresholdPct:50, status:'normal', displayValue:'', barPct:0 },
-    ]},
-    { id:3, labName:'C202 计算机实验室', overallStatus:'normal', updateAgo:ago(), sensors:[
-      { type:'temp', label:'温度', value:randomVal(26,2), unit:'°C', threshold:35, thresholdPct:70, status:'normal', displayValue:'', barPct:0 },
-      { type:'humidity', label:'湿度', value:randomVal(48,5), unit:'%', threshold:70, thresholdPct:70, status:'normal', displayValue:'', barPct:0 },
-      { type:'smoke', label:'烟雾', value:randomVal(0.1,0.1), unit:'mg/m³', threshold:0.5, thresholdPct:50, status:'normal', displayValue:'', barPct:0 },
-      { type:'gas', label:'气体', value:randomVal(0.0,0.1), unit:'ppm', threshold:0.5, thresholdPct:50, status:'normal', displayValue:'', barPct:0 },
-    ]},
-    { id:4, labName:'D108 生物培养实验室', overallStatus:'normal', updateAgo:ago(), sensors:[
-      { type:'temp', label:'温度', value:randomVal(28,2), unit:'°C', threshold:35, thresholdPct:70, status:'normal', displayValue:'', barPct:0 },
-      { type:'humidity', label:'湿度', value:randomVal(65,5), unit:'%', threshold:70, thresholdPct:70, status:'normal', displayValue:'', barPct:0 },
-      { type:'smoke', label:'烟雾', value:randomVal(0.1,0.1), unit:'mg/m³', threshold:0.5, thresholdPct:50, status:'normal', displayValue:'', barPct:0 },
-      { type:'gas', label:'气体', value:randomVal(0.2,0.1), unit:'ppm', threshold:0.5, thresholdPct:50, status:'normal', displayValue:'', barPct:0 },
-    ]},
-  ]
-}
-
-function enrichData(data: LabSensor[]): LabSensor[] {
-  return data.map(lab => {
-    const sensors = lab.sensors.map(s => {
-      let pct = Math.min(100, Math.round(s.value / s.threshold * 100))
-      if (s.type === 'humidity') pct = Math.round(s.value)
-      let status: SensorStatus = 'normal'
-      if (s.value >= s.threshold) status = 'alarm'
-      else if (s.value >= s.threshold * 0.8) status = 'warning'
-      if (s.type === 'humidity') {
-        if (s.value > 70 || s.value < 30) status = 'alarm'
-        else if (s.value > 65 || s.value < 35) status = 'warning'
-        else status = 'normal'
-      }
-      return {
-        ...s,
-        status,
-        displayValue: s.value + ' ' + s.unit,
-        barPct: pct,
-      }
-    })
-    const hasAlarm = sensors.some(s => s.status === 'alarm')
-    const hasWarning = sensors.some(s => s.status === 'warning')
-    const overallStatus: SensorStatus = hasAlarm ? 'alarm' : hasWarning ? 'warning' : 'normal'
-    return { ...lab, sensors, overallStatus }
-  })
-}
-
-const labData = ref<LabSensor[]>(enrichData(generateData()))
+const labData = ref<LabDisplay[]>([])
 const filterLab = ref('')
 const refreshing = ref(false)
-const lastUpdate = ref('刚刚')
+const loadError = ref(false)
+const lastUpdate = ref('加载中…')
+
+const labOptions = computed(() => labData.value.map(l => l.labName))
 
 const filteredLabs = computed(() => {
   if (!filterLab.value) return labData.value
@@ -152,15 +96,75 @@ const filteredLabs = computed(() => {
 function statusCount(s: SensorStatus) { return labData.value.filter(l => l.overallStatus === s).length }
 function statusLabel(s: SensorStatus) { return s === 'normal' ? '正常' : s === 'warning' ? '预警' : '告警' }
 
-function doRefresh() {
-  refreshing.value = true
-  setTimeout(() => {
-    labData.value = enrichData(generateData())
+function toDisplay(data: LabMonitorData[]): LabDisplay[] {
+  return data.map(lab => {
+    const sensors = (lab.sensors ?? []).map(s => ({
+      ...s,
+      status: s.status as SensorStatus,
+      displayValue: s.value + ' ' + s.unit,
+    }))
+    return {
+      id: lab.labId,
+      labName: lab.labName,
+      overallStatus: lab.overallStatus as SensorStatus,
+      updateAgo: formatAgo(lab.updateAgo),
+      sensors,
+    }
+  })
+}
+
+function formatAgo(seconds: number): string {
+  if (seconds < 60) return seconds + '秒前'
+  if (seconds < 3600) return Math.floor(seconds / 60) + '分钟前'
+  return Math.floor(seconds / 3600) + '小时前'
+}
+
+async function loadData() {
+  loadError.value = false
+  try {
+    const data = await getLabMonitorData()
+    labData.value = toDisplay(data)
     const now = new Date()
     lastUpdate.value = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0') + ':' + now.getSeconds().toString().padStart(2,'0')
-    refreshing.value = false
-  }, 600)
+  } catch(e) {
+    console.error('[IotMonitor] load error:', e)
+    loadError.value = true
+    lastUpdate.value = '加载失败'
+  }
 }
+
+async function doDetectOffline() {
+  try {
+    const count = await detectOfflineSensors()
+    alert(`离线检测完成，${count} 个传感器状态已变更`)
+    await loadData()
+  } catch(e) {
+    console.error('[IotMonitor] detect offline error:', e)
+    alert('离线检测失败')
+  }
+}
+
+function doRefresh() {
+  refreshing.value = true
+  loadData().finally(() => { refreshing.value = false })
+}
+
+/** 处理 WebSocket 实时推送的传感器数据更新 */
+function handleRealtimeEvent(event: Event) {
+  const envelope = (event as CustomEvent<RealtimeEnvelope>).detail
+  if (envelope.event === 'sensor.data.updated' || envelope.event === 'sensor.status_changed') {
+    loadData()
+  }
+}
+
+onMounted(() => {
+  loadData()
+  window.addEventListener(REALTIME_EVENT_NAME, handleRealtimeEvent)
+})
+
+onUnmounted(() => {
+  window.removeEventListener(REALTIME_EVENT_NAME, handleRealtimeEvent)
+})
 </script>
 
 <style scoped>

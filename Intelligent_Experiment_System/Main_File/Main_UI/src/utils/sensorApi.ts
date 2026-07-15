@@ -1,19 +1,32 @@
 import api from './api'
-import type { ApiResult, PageResult } from './api'
+import type { ApiResult } from './api'
 
-export interface SensorItem {
-  id: number
-  sensorNo: string
-  sensorTypeName: string
-  targetType: number
-  targetId: number
-  runningStatus: number
-  runningStatusName: string
-  lastReportAt: string | null
-  remark: string | null
+export interface SensorReading {
+  type: string
+  label: string
+  value: number
+  unit: string
+  threshold: number
+  status: 'normal' | 'warning' | 'alarm'
+  barPct: number
 }
 
-export function getSensorPage(query: { pageNum?: number; pageSize?: number; runningStatus?: number } = {}): Promise<PageResult<SensorItem>> {
-  return api.get<ApiResult<PageResult<SensorItem>>>('/iot/sensors', { params: query })
+export interface LabMonitorData {
+  labId: number
+  labName: string
+  overallStatus: 'normal' | 'warning' | 'alarm'
+  updateAgo: number
+  sensors: SensorReading[]
+}
+
+/** 传感器离线检测：扫描并标记超时未上报的传感器为离线 */
+export function detectOfflineSensors(): Promise<number> {
+  return api.post<ApiResult<number>>('/iot/sensors/detect-offline')
+    .then(res => res.data.data)
+}
+
+/** 获取所有实验室的传感器实时监测数据 */
+export function getLabMonitorData(): Promise<LabMonitorData[]> {
+  return api.get<ApiResult<LabMonitorData[]>>('/iot/labs/monitor')
     .then(res => res.data.data)
 }
