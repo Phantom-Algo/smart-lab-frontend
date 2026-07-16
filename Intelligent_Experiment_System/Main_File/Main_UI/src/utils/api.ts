@@ -53,14 +53,18 @@ instance.interceptors.response.use(
     return response
   },
   (error) => {
-    if (error.response?.status === 401) {
+    const response = error.response
+    if (response?.status === 401) {
       localStorage.removeItem('accessToken')
       localStorage.removeItem('userId')
       localStorage.removeItem('userRole')
       // 使用自定义事件通知应用登出，避免 window.location.reload 导致的刷新循环
       window.dispatchEvent(new CustomEvent('auth:logout'))
     }
-    return Promise.reject(error)
+    // Axios 会把 4xx/5xx 直接交给失败回调，必须在这里提取后端统一响应，
+    // 否则页面只能得到“Request failed with status code 400”，看不到真实业务原因。
+    const message = response?.data?.message
+    return Promise.reject(message ? new Error(message) : error)
   }
 )
 

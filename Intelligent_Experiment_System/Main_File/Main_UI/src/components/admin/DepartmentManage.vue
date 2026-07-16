@@ -1,336 +1,80 @@
 <template>
-  <div class="dm-page">
-    <div class="page-header">
-      <h2>部门管理</h2>
-      <p>维护实验室组织部门结构</p>
-    </div>
+  <div class="page-shell">
+    <header class="page-header"><div><h2>部门管理</h2><p>维护组织层级、负责人和部门状态</p></div><button class="primary-btn" @click="openCreate()"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>新增部门</button></header>
+    <div v-if="message.text" class="message" :class="message.type">{{ message.text }}</div>
+    <section class="layout-card">
+      <aside class="tree-panel">
+        <div class="panel-title"><span>组织架构</span><small>{{ flatDepartments.length }} 个部门</small></div>
+        <div v-if="loading" class="state-box">正在加载…</div>
+        <div v-else-if="flatDepartments.length === 0" class="state-box">暂无部门</div>
+        <button v-for="node in flatDepartments" :key="node.item.id" class="tree-node" :class="{ active: selected?.id === node.item.id }" :style="{ paddingLeft: `${14 + node.depth * 20}px` }" @click="selectDepartment(node.item.id)">
+          <svg viewBox="0 0 24 24"><path d="M4 20V6h6V3h10v17M2 20h20M8 10h1m-1 4h1m5-7h2m-2 4h2m-2 4h2"/></svg><span>{{ node.item.departmentName }}</span><i :class="node.item.departmentStatus === 1 ? 'on' : 'off'"></i>
+        </button>
+      </aside>
+      <main class="detail-panel">
+        <div v-if="detailLoading" class="state-box">正在加载部门详情…</div>
+        <template v-else-if="selected">
+          <header class="detail-header"><div><span class="eyebrow">{{ selected.departmentCode }}</span><h3>{{ selected.departmentName }}</h3><p>{{ selected.description || '暂无部门说明' }}</p></div><span class="status"><i :class="selected.departmentStatus === 1 ? 'on' : 'off'"></i>{{ selected.departmentStatus === 1 ? '正常' : '停用' }}</span></header>
+          <div class="info-grid"><div><span>部门编号</span><strong>{{ selected.departmentNo }}</strong></div><div><span>上级部门</span><strong>{{ parentName(selected.parentId) }}</strong></div><div><span>负责人</span><strong>{{ selected.leaderPersonName || '未设置' }}</strong></div><div><span>排序号</span><strong>{{ selected.sortNo }}</strong></div></div>
+          <div class="detail-actions"><button class="ghost-btn" @click="openCreate(selected.id)">添加子部门</button><button class="secondary-btn" @click="openEdit">编辑信息</button><button class="danger-btn" @click="toggleStatus">{{ selected.departmentStatus === 1 ? '停用部门' : '恢复部门' }}</button></div>
+        </template>
+        <div v-else class="state-box">选择左侧部门查看详情</div>
+      </main>
+    </section>
 
-    <div class="dept-layout">
-      <div class="dept-tree-panel">
-        <div class="dept-tree-header">
-          <span>组织架构</span>
-          <button class="add-btn-sm" @click="openAddDialog()">+ 新增</button>
-        </div>
-        <div class="dept-tree" v-if="deptTree.length > 0">
-          <div v-for="dept in deptTree" :key="dept.id" class="dept-node">
-            <div class="dept-node-row" :class="{ selected: selectedDept?.id === dept.id }" @click="selectedDept = dept">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3z M3 9h18 M9 3v18"/></svg>
-              <span>{{ dept.departmentName }}</span>
-              <span class="dept-code">{{ dept.departmentCode }}</span>
-            </div>
-            <div v-if="dept.children" class="dept-children">
-              <div v-for="child in dept.children" :key="child.id" class="dept-node-row child" :class="{ selected: selectedDept?.id === child.id }" @click="selectedDept = child">
-                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3z M3 9h18 M9 3v18"/></svg>
-                <span>{{ child.departmentName }}</span>
-                <span class="dept-code">{{ child.departmentCode }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div v-else class="empty-hint">暂无部门数据</div>
-      </div>
-
-      <div class="dept-detail-panel" v-if="selectedDept">
-        <div class="detail-header">
-          <div class="detail-icon">
-            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></svg>
-          </div>
-          <div class="detail-header-text">
-            <h4>{{ selectedDept.departmentName }}</h4>
-            <span class="status-badge" :class="selectedDept.departmentStatus === 1 ? 'on' : 'off'">
-              <span class="status-dot"></span>{{ selectedDept.departmentStatus === 1 ? '正常' : '停用' }}
-            </span>
-          </div>
-        </div>
-
-        <div class="detail-cards">
-          <div class="info-card">
-            <div class="info-card-icon code-icon">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16,18 22,12 16,6"/><polyline points="8,6 2,12 8,18"/></svg>
-            </div>
-            <div class="info-card-body">
-              <span class="info-label">部门编码</span>
-              <span class="info-value code">{{ selectedDept.departmentCode || '—' }}</span>
-            </div>
-          </div>
-          <div class="info-card">
-            <div class="info-card-icon leader-icon">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-            </div>
-            <div class="info-card-body">
-              <span class="info-label">负责人</span>
-              <span class="info-value" :class="{ muted: !selectedDept.leaderPersonName }">{{ selectedDept.leaderPersonName || '未设置' }}</span>
-            </div>
-          </div>
-          <div class="info-card" v-if="selectedDept.description">
-            <div class="info-card-icon desc-icon">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><polyline points="14,2 14,8 20,8"/></svg>
-            </div>
-            <div class="info-card-body">
-              <span class="info-label">描述</span>
-              <span class="info-value desc-text">{{ selectedDept.description }}</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="detail-footer">
-          <button class="action-btn primary" @click="openAddDialog(true)">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            添加子部门
-          </button>
-        </div>
-      </div>
-      <div v-else class="dept-detail-panel empty-detail">
-        <span>选择左侧部门查看详情</span>
-      </div>
-    </div>
-
-    <!-- 新增部门弹窗 -->
-    <teleport to="body">
-      <transition name="modal-fade">
-        <div v-if="showDialog" class="modal-overlay" @click.self="showDialog = false">
-          <div class="modal-panel">
-            <div class="modal-header">
-              <h3>{{ dialogParentId ? '添加子部门' : '新增部门' }}</h3>
-              <button class="modal-close" @click="showDialog = false"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
-            </div>
-            <div class="modal-body">
-              <div class="form-g">
-                <label>部门名称 <span class="required">*</span></label>
-                <input v-model="form.departmentName" class="form-input" placeholder="请输入部门名称" maxlength="128" />
-              </div>
-              <div class="form-g">
-                <label>部门编码</label>
-                <input v-model="form.departmentCode" class="form-input" placeholder="如 CS、CHEM（选填）" maxlength="64" />
-              </div>
-              <div class="form-g">
-                <label>上级部门</label>
-                <select v-model="form.parentId" class="form-input">
-                  <option :value="undefined">无（顶级部门）</option>
-                  <option v-for="d in flatDeptList" :key="d.id" :value="d.id">{{ d.departmentName }}</option>
-                </select>
-              </div>
-              <div class="form-g">
-                <label>描述</label>
-                <textarea v-model="form.description" class="form-input form-textarea" placeholder="部门职能描述（选填）" rows="2" maxlength="255"></textarea>
-              </div>
-            </div>
-            <div class="modal-footer">
-              <button class="modal-btn cancel" @click="showDialog = false">取消</button>
-              <button class="modal-btn primary" @click="submitAdd" :disabled="!form.departmentName.trim()">确认创建</button>
-            </div>
-          </div>
-        </div>
-      </transition>
-    </teleport>
+    <teleport to="body"><div v-if="dialogOpen" class="modal-overlay" @click.self="closeDialog"><section class="modal-panel">
+      <header class="modal-header"><div><h3>{{ editingId ? '编辑部门' : '新增部门' }}</h3><p>部门编号和编码创建后不可修改</p></div><button class="icon-btn" @click="closeDialog"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header>
+      <div class="modal-body"><div class="form-grid">
+        <label><span>部门编号 *</span><input v-model.trim="form.departmentNo" :disabled="Boolean(editingId)" placeholder="如 DEPT-001" /></label>
+        <label><span>部门编码 *</span><input v-model.trim="form.departmentCode" :disabled="Boolean(editingId)" placeholder="如 CS" /></label>
+        <label><span>部门名称 *</span><input v-model.trim="form.departmentName" /></label>
+        <label><span>上级部门</span><select v-model="form.parentId"><option value="">顶级部门</option><option v-for="item in parentOptions" :key="item.id" :value="item.id">{{ item.departmentName }}</option></select></label>
+        <label><span>负责人</span><select v-model="form.leaderPersonId"><option value="">暂不设置</option><option v-for="person in leaderOptions" :key="person.id" :value="person.id">{{ person.personName }} · {{ person.personNo }}</option></select></label>
+        <label><span>状态 *</span><select v-model="form.departmentStatus"><option :value="1">正常</option><option :value="2">停用</option></select></label>
+        <label><span>排序号</span><input v-model.number="form.sortNo" type="number" min="0" /></label>
+        <label class="full"><span>部门说明</span><textarea v-model.trim="form.description" rows="3"></textarea></label>
+      </div><p v-if="formError" class="form-error">{{ formError }}</p></div>
+      <footer class="modal-footer"><button class="ghost-btn" @click="closeDialog">取消</button><button class="primary-btn" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存' }}</button></footer>
+    </section></div></teleport>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
-import { isMockMode } from '../../stores/authStore'
-import { getDepartmentTree, createDepartment, type DepartmentItem } from '../../utils/personnelApi'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { createDepartment, getDepartmentDetail, getDepartmentTree, getPersonPage, updateDepartment, updateDepartmentStatus, type DepartmentItem, type DepartmentStatus, type PersonDetail } from '../../utils/personnelApi'
 
-const deptTree = ref<DepartmentItem[]>([])
-const selectedDept = ref<DepartmentItem | null>(null)
+interface FlatNode { item: DepartmentItem; depth: number }
+const tree = ref<DepartmentItem[]>([])
+const selected = ref<DepartmentItem | null>(null)
+const leaderOptions = ref<PersonDetail[]>([])
+const loading = ref(false)
+const detailLoading = ref(false)
+const dialogOpen = ref(false)
+const saving = ref(false)
+const editingId = ref<number | null>(null)
+const formError = ref('')
+const message = reactive({ text: '', type: 'success' as 'success' | 'error' })
+const form = reactive({ departmentNo: '', departmentCode: '', departmentName: '', parentId: '' as number | '', leaderPersonId: '' as number | '', departmentStatus: 1 as DepartmentStatus, sortNo: 0, description: '' })
+const flatDepartments = computed(() => flatten(tree.value))
+const parentOptions = computed(() => flatDepartments.value.map(node => node.item).filter(item => item.id !== editingId.value && !descendantIds(editingId.value).has(item.id)))
 
-// 扁平化部门列表（用于上级部门选择）
-function flattenDepts(items: DepartmentItem[]): DepartmentItem[] {
-  let result: DepartmentItem[] = []
-  for (const d of items) {
-    result.push(d)
-    if (d.children) result = result.concat(flattenDepts(d.children))
-  }
-  return result
-}
-const flatDeptList = ref<DepartmentItem[]>([])
-
-async function loadTree() {
-  if (isMockMode.value) return
-  try {
-    deptTree.value = await getDepartmentTree()
-    flatDeptList.value = flattenDepts(deptTree.value)
-  } catch { /* ignore */ }
-}
-loadTree()
-
-// 新增弹窗
-const showDialog = ref(false)
-const dialogParentId = ref<number | undefined>(undefined)
-const form = reactive({
-  departmentName: '',
-  departmentCode: '',
-  parentId: undefined as number | undefined,
-  description: '',
-})
-
-function openAddDialog(asChild = false) {
-  form.departmentName = ''
-  form.departmentCode = ''
-  form.description = ''
-  if (asChild && selectedDept.value) {
-    dialogParentId.value = selectedDept.value.id
-    form.parentId = selectedDept.value.id
-  } else {
-    dialogParentId.value = undefined
-    form.parentId = undefined
-  }
-  showDialog.value = true
-}
-
-async function submitAdd() {
-  if (!form.departmentName.trim()) return
-  try {
-    await createDepartment({
-      departmentName: form.departmentName.trim(),
-      departmentCode: form.departmentCode.trim() || undefined,
-      parentId: form.parentId,
-    })
-    showDialog.value = false
-    await loadTree()
-  } catch { alert('创建失败，请重试') }
-}
+function flatten(items: DepartmentItem[], depth = 0): FlatNode[] { return items.flatMap(item => [{ item, depth }, ...flatten(item.children || [], depth + 1)]) }
+function errorText(error: unknown): string { return error instanceof Error ? error.message : '操作失败，请稍后重试' }
+function showMessage(text: string, type: 'success' | 'error' = 'success'): void { message.text = text; message.type = type; window.setTimeout(() => { if (message.text === text) message.text = '' }, 4000) }
+function parentName(id?: number | null): string { return flatDepartments.value.find(node => node.item.id === id)?.item.departmentName || '顶级部门' }
+function descendantIds(id: number | null): Set<number> { const result = new Set<number>(); if (!id) return result; const root = flatDepartments.value.find(node => node.item.id === id)?.item; const visit = (items: DepartmentItem[]) => items.forEach(item => { result.add(item.id); visit(item.children || []) }); visit(root?.children || []); return result }
+async function loadTree(preferredId?: number): Promise<void> { loading.value = true; try { tree.value = await getDepartmentTree(); const targetId = preferredId || selected.value?.id || flatDepartments.value[0]?.item.id; if (targetId) await selectDepartment(targetId); else selected.value = null } catch (error) { showMessage(errorText(error), 'error') } finally { loading.value = false } }
+async function loadLeaders(): Promise<void> { try { const result = await getPersonPage({ pageNum: 1, pageSize: 500, personTypes: [2, 3], personStatuses: [1] }); leaderOptions.value = result.records } catch (error) { showMessage(errorText(error), 'error') } }
+async function selectDepartment(id: number): Promise<void> { detailLoading.value = true; try { selected.value = await getDepartmentDetail(id) } catch (error) { showMessage(errorText(error), 'error') } finally { detailLoading.value = false } }
+function resetForm(): void { Object.assign(form, { departmentNo: '', departmentCode: '', departmentName: '', parentId: '', leaderPersonId: '', departmentStatus: 1, sortNo: 0, description: '' }); formError.value = '' }
+function openCreate(parentId?: number): void { resetForm(); editingId.value = null; form.parentId = parentId || ''; dialogOpen.value = true }
+function openEdit(): void { if (!selected.value) return; editingId.value = selected.value.id; Object.assign(form, { departmentNo: selected.value.departmentNo, departmentCode: selected.value.departmentCode, departmentName: selected.value.departmentName, parentId: selected.value.parentId || '', leaderPersonId: selected.value.leaderPersonId || '', departmentStatus: selected.value.departmentStatus, sortNo: selected.value.sortNo, description: selected.value.description || '' }); formError.value = ''; dialogOpen.value = true }
+function closeDialog(): void { if (!saving.value) dialogOpen.value = false }
+async function save(): Promise<void> { if (!form.departmentNo || !form.departmentCode || !form.departmentName) { formError.value = '请完整填写部门编号、编码和名称'; return } saving.value = true; const common = { departmentName: form.departmentName, parentId: form.parentId === '' ? undefined : form.parentId, leaderPersonId: form.leaderPersonId === '' ? undefined : form.leaderPersonId, departmentStatus: form.departmentStatus, sortNo: form.sortNo, description: form.description || undefined }; try { const result = editingId.value ? await updateDepartment(editingId.value, common) : await createDepartment({ departmentNo: form.departmentNo, departmentCode: form.departmentCode, ...common }); dialogOpen.value = false; showMessage('部门信息已保存'); await loadTree(result.id) } catch (error) { formError.value = errorText(error) } finally { saving.value = false } }
+async function toggleStatus(): Promise<void> { if (!selected.value) return; const next: DepartmentStatus = selected.value.departmentStatus === 1 ? 2 : 1; if (!window.confirm(`确认${next === 1 ? '恢复' : '停用'}“${selected.value.departmentName}”？`)) return; try { await updateDepartmentStatus(selected.value.id, next); showMessage('部门状态已更新'); await loadTree(selected.value.id) } catch (error) { showMessage(errorText(error), 'error') } }
+onMounted(async () => { await Promise.all([loadTree(), loadLeaders()]) })
 </script>
 
 <style scoped>
-.dm-page { height:100%; overflow-y:auto; padding:20px 24px }
-.page-header { margin-bottom:16px }
-.page-header h2 { font-size:20px; font-weight:600; color:#1a1a2e; margin:0 }
-.page-header p { margin:4px 0 0; font-size:13px; color:#999 }
-
-.dept-layout { display:grid; grid-template-columns:280px 1fr; gap:20px; height:calc(100% - 60px) }
-
-.dept-tree-panel { background:rgba(255,255,255,.65); backdrop-filter:blur(10px); border:1px solid rgba(0,0,0,.06); border-radius:14px; padding:16px; overflow-y:auto }
-.dept-tree-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px }
-.dept-tree-header span { font-size:14px; font-weight:600; color:#1a1a2e }
-.add-btn-sm { padding:5px 14px; border:none; border-radius:8px; background:rgba(26,115,232,.1); color:#1a73e8; font-size:12px; cursor:pointer }
-.add-btn-sm:hover { background:rgba(26,115,232,.18) }
-
-.dept-node { margin-bottom:4px }
-.dept-node-row { display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:8px; cursor:pointer; transition:.15s; font-size:13px; color:#333 }
-.dept-node-row:hover { background:rgba(0,0,0,.04) }
-.dept-node-row.selected { background:rgba(26,115,232,.08); color:#1a73e8; font-weight:500 }
-.dept-node-row svg { flex-shrink:0; color:#aaa }
-.dept-node-row.selected svg { color:#1a73e8 }
-.dept-code { font-size:11px; color:#aaa; margin-left:auto }
-.dept-children { margin-left:16px; border-left:1px solid rgba(0,0,0,.06); padding-left:8px }
-.dept-node-row.child { font-size:13px }
-
-.dept-detail-panel { 
-  background:#fff; 
-  border-radius:16px; 
-  padding:0; 
-  overflow:hidden;
-  box-shadow:0 1px 3px rgba(0,0,0,.04), 0 4px 16px rgba(0,0,0,.04);
-  display:flex; flex-direction:column;
-}
-.detail-header {
-  display:flex; align-items:center; gap:16px;
-  padding:24px 24px 20px;
-  background:linear-gradient(135deg, #f8faff 0%, #eef2ff 100%);
-  border-bottom:1px solid rgba(0,0,0,.04);
-}
-.detail-icon {
-  width:52px; height:52px; border-radius:14px;
-  background:linear-gradient(135deg,#1a73e8,#4a90d9);
-  display:flex; align-items:center; justify-content:center;
-  color:#fff; flex-shrink:0;
-  box-shadow:0 4px 12px rgba(26,115,232,.25);
-}
-.detail-header-text { flex:1; min-width:0 }
-.detail-header-text h4 {
-  margin:0 0 6px; font-size:18px; font-weight:700; color:#1a1a2e;
-  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-}
-.status-badge {
-  display:inline-flex; align-items:center; gap:6px;
-  font-size:12px; font-weight:500; padding:4px 12px; border-radius:20px;
-}
-.status-badge.on { background:rgba(39,174,96,.1); color:#27ae60 }
-.status-badge.off { background:rgba(231,76,60,.1); color:#e74c3c }
-.status-badge .status-dot {
-  width:6px; height:6px; border-radius:50%;
-}
-.status-badge.on .status-dot { background:#27ae60 }
-.status-badge.off .status-dot { background:#e74c3c }
-
-.detail-cards { 
-  padding:16px 24px; 
-  display:flex; flex-direction:column; gap:10px;
-  flex:1;
-}
-.info-card {
-  display:flex; align-items:flex-start; gap:14px;
-  padding:14px 16px;
-  border-radius:12px;
-  background:rgba(0,0,0,.015);
-  transition:.15s;
-}
-.info-card:hover { background:rgba(0,0,0,.03) }
-.info-card-icon {
-  width:38px; height:38px; border-radius:10px;
-  display:flex; align-items:center; justify-content:center;
-  flex-shrink:0;
-}
-.code-icon { background:rgba(26,115,232,.08); color:#1a73e8 }
-.leader-icon { background:rgba(230,126,34,.08); color:#e67e22 }
-.desc-icon { background:rgba(39,174,96,.08); color:#27ae60 }
-
-.info-card-body { flex:1; min-width:0 }
-.info-label { display:block; font-size:11px; font-weight:500; color:#999; text-transform:uppercase; letter-spacing:.5px; margin-bottom:3px }
-.info-value { font-size:14px; font-weight:600; color:#1a1a2e; word-break:break-all }
-.info-value.code { font-family:'SF Mono','Fira Code',monospace; font-size:13px; font-weight:500; color:#555 }
-.info-value.muted { color:#bbb; font-weight:400 }
-.info-value.desc-text { font-size:13px; font-weight:400; color:#666; line-height:1.5 }
-
-.detail-footer {
-  padding:16px 24px 20px;
-  border-top:1px solid rgba(0,0,0,.04);
-}
-.action-btn.primary {
-  display:inline-flex; align-items:center; gap:6px;
-  padding:10px 22px;
-  border:none; border-radius:10px;
-  background:linear-gradient(135deg,#1a73e8,#4a90d9);
-  color:#fff; font-size:13px; font-weight:500; cursor:pointer;
-  transition:.2s;
-  box-shadow:0 2px 8px rgba(26,115,232,.2);
-}
-.action-btn.primary:hover { 
-  box-shadow:0 4px 16px rgba(26,115,232,.35);
-  transform:translateY(-1px);
-}
-
-.empty-hint { padding:40px 20px; text-align:center; color:#bbb; font-size:13px }
-.empty-detail { display:flex; align-items:center; justify-content:center; color:#bbb; font-size:13px }
-</style>
-
-<!-- 弹窗样式 -->
-<style>
-.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; z-index:1100; padding:20px }
-.modal-panel { background:#fff; border-radius:16px; width:100%; max-width:500px; max-height:85vh; display:flex; flex-direction:column; box-shadow:0 16px 48px rgba(0,0,0,.15) }
-.modal-header { display:flex; align-items:center; justify-content:space-between; padding:20px 24px 0 }
-.modal-header h3 { margin:0; font-size:17px; font-weight:600; color:#1a1a2e }
-.modal-close { background:none; border:none; cursor:pointer; color:#aaa; padding:4px; border-radius:6px }
-.modal-close:hover { background:rgba(0,0,0,.05); color:#333 }
-.modal-body { padding:20px 24px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:14px }
-.modal-footer { display:flex; justify-content:flex-end; gap:10px; padding:16px 24px 20px; border-top:1px solid rgba(0,0,0,.06) }
-.modal-btn { padding:10px 24px; border-radius:10px; font-size:14px; cursor:pointer; border:none; font-weight:500; transition:.2s }
-.modal-btn.cancel { background:rgba(0,0,0,.04); color:#666 }
-.modal-btn.cancel:hover { background:rgba(0,0,0,.08) }
-.modal-btn.primary { background:linear-gradient(135deg,#1a73e8,#4a90d9); color:#fff }
-.modal-btn.primary:hover:not(:disabled) { box-shadow:0 4px 12px rgba(26,115,232,.3) }
-.modal-btn:disabled { opacity:.4; cursor:not-allowed }
-
-.form-g { display:flex; flex-direction:column; gap:4px }
-.form-g label { font-size:13px; font-weight:500; color:#555 }
-.required { color:#e74c3c }
-.form-input { padding:10px 14px; border:1px solid rgba(0,0,0,.1); border-radius:10px; font-size:14px; color:#333; outline:none; background:rgba(255,255,255,.7); transition:.15s; font-family:inherit }
-.form-input:focus { border-color:#1a73e8 }
-.form-textarea { resize:vertical }
-
-.modal-fade-enter-active { transition:all .2s ease }
-.modal-fade-leave-active { transition:all .15s ease }
-.modal-fade-enter-from,.modal-fade-leave-to { opacity:0 }
-.modal-fade-enter-from .modal-panel { transform:scale(.94) translateY(12px) }
+.page-shell{height:100%;overflow:auto;padding:24px;color:#172033;background:transparent}.page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}.page-header h2{margin:0;font-size:22px}.page-header p,.modal-header p{margin:5px 0 0;color:#7b8495;font-size:13px}.primary-btn,.secondary-btn,.ghost-btn,.danger-btn{border:0;border-radius:8px;padding:9px 15px;font:inherit;font-size:13px;cursor:pointer}.primary-btn{display:inline-flex;align-items:center;gap:7px;background:#2563eb;color:#fff}.primary-btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2}.secondary-btn{background:#172033;color:#fff}.ghost-btn{background:#eef1f6;color:#4b5565}.danger-btn{background:#fff0f1;color:#b42336}.primary-btn:disabled{opacity:.55}.message{margin-bottom:12px;border-radius:8px;padding:10px 13px;font-size:13px}.message.success{background:#ecfdf3;color:#137a45}.message.error{background:#fff1f2;color:#b42336}.layout-card{min-height:520px;display:grid;grid-template-columns:330px 1fr;overflow:hidden;background:#fff;border:1px solid #e7ebf1;border-radius:12px}.tree-panel{border-right:1px solid #e7ebf1;padding:12px 0}.panel-title{display:flex;justify-content:space-between;padding:8px 16px 14px;font-size:14px;font-weight:600}.panel-title small{color:#9098a7;font-weight:400}.tree-node{box-sizing:border-box;width:100%;display:flex;align-items:center;gap:9px;border:0;background:none;padding-top:10px;padding-bottom:10px;padding-right:14px;color:#4b5565;text-align:left;cursor:pointer}.tree-node:hover,.tree-node.active{background:#f1f6ff;color:#1d4ed8}.tree-node svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.8}.tree-node span{flex:1}.tree-node i,.status i{width:7px;height:7px;border-radius:50%;background:#dc5b61}.tree-node i.on,.status i.on{background:#22a06b}.detail-panel{padding:28px}.detail-header{display:flex;align-items:flex-start;justify-content:space-between;border-bottom:1px solid #eef1f5;padding-bottom:22px}.detail-header h3{margin:5px 0;font-size:24px}.detail-header p{margin:0;color:#7b8495;font-size:13px}.eyebrow{color:#2563eb;font-size:12px;font-weight:600}.status{display:inline-flex;align-items:center;gap:7px;border:1px solid #e7ebf1;border-radius:20px;padding:7px 11px;font-size:12px}.info-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin:24px 0}.info-grid div{padding:16px;border:1px solid #e7ebf1;border-radius:10px}.info-grid span{display:block;color:#7b8495;font-size:12px}.info-grid strong{display:block;margin-top:7px;font-size:14px}.detail-actions{display:flex;gap:9px}.state-box{padding:56px 20px;text-align:center;color:#8992a2}.modal-overlay{position:fixed;inset:0;z-index:1200;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(15,23,42,.42)}.modal-panel{width:min(700px,100%);max-height:88vh;display:flex;flex-direction:column;background:#fff;border-radius:14px}.modal-header{display:flex;justify-content:space-between;padding:20px 22px;border-bottom:1px solid #eef1f5}.modal-header h3{margin:0;font-size:18px}.icon-btn{border:0;background:none;cursor:pointer}.icon-btn svg{width:20px;height:20px;fill:none;stroke:#687386;stroke-width:2}.modal-body{padding:20px 22px;overflow:auto}.form-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}.form-grid label{display:flex;flex-direction:column;gap:6px}.form-grid span{font-size:12px;color:#687386}.form-grid input,.form-grid select,.form-grid textarea{box-sizing:border-box;width:100%;border:1px solid #dfe4ec;border-radius:8px;padding:9px 10px;background:#fff;font:inherit;font-size:13px;outline:none}.form-grid :disabled{background:#f5f6f8}.form-grid .full{grid-column:1/-1}.form-grid textarea{resize:vertical}.form-error{color:#b42336;font-size:13px}.modal-footer{display:flex;justify-content:flex-end;gap:8px;padding:15px 22px;border-top:1px solid #eef1f5}@media(max-width:800px){.layout-card{grid-template-columns:1fr}.tree-panel{border-right:0;border-bottom:1px solid #e7ebf1}.form-grid,.info-grid{grid-template-columns:1fr}.form-grid .full{grid-column:auto}}
 </style>

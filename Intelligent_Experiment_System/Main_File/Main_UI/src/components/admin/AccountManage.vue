@@ -1,308 +1,62 @@
 <template>
-  <div class="am-page">
-    <div class="page-header">
-      <h2>账号管理</h2>
-      <p>创建/启停账号、分配权限</p>
-    </div>
+  <div class="page-shell">
+    <header class="page-header"><div><h2>账号管理</h2><p>基于人员档案创建、启停账号并重置初始密码</p></div><button class="primary-btn" :disabled="unboundPeople.length === 0" @click="openCreate"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>创建账号</button></header>
+    <section class="stat-grid"><div><span>已绑定账号</span><strong>{{ accounts.length }}</strong></div><div><span>正常</span><strong>{{ activeCount }}</strong></div><div><span>停用 / 锁定</span><strong>{{ inactiveCount }}</strong></div><div><span>待创建账号人员</span><strong>{{ unboundPeople.length }}</strong></div></section>
+    <section class="filter-panel"><label><span>关键字</span><input v-model.trim="keyword" placeholder="用户名、姓名或人员编号" /></label><label><span>人员类型</span><select v-model="typeFilter"><option value="">全部</option><option :value="1">学生</option><option :value="2">教师</option><option :value="3">管理员</option></select></label><label><span>账号状态</span><select v-model="statusFilter"><option value="">全部</option><option :value="1">正常</option><option :value="2">停用</option><option :value="3">锁定</option></select></label><button class="ghost-btn" @click="resetFilters">重置</button></section>
+    <div v-if="message.text" class="message" :class="message.type">{{ message.text }}</div>
+    <section class="table-card"><div v-if="loading" class="state-box">正在加载账号数据…</div><div v-else-if="filteredAccounts.length === 0" class="state-box">没有符合条件的账号</div><div v-else class="table-scroll"><table><thead><tr><th>账号</th><th>关联人员</th><th>角色</th><th>部门</th><th>账号状态</th><th>密码状态</th><th>操作</th></tr></thead><tbody><tr v-for="person in filteredAccounts" :key="person.id"><td><strong>{{ person.account?.username }}</strong><small>用户 ID：{{ person.account?.userId }}</small></td><td>{{ person.personName }}<small>{{ person.personNo }}</small></td><td><span class="tag" :class="`type-${person.personType}`">{{ typeLabel(person.personType) }}</span></td><td>{{ person.departmentName }}<small>{{ person.positionName || '未配置岗位' }}</small></td><td><span class="status"><i :class="person.account?.accountStatus === 1 ? 'on' : 'off'"></i>{{ accountStatusLabel(person.account?.accountStatus) }}</span></td><td>{{ person.account?.passwordResetRequired ? '首次登录需改密' : '正常' }}</td><td><div class="row-actions"><button @click="toggleAccount(person)">{{ person.account?.accountStatus === 1 ? '停用' : '启用' }}</button><button @click="openReset(person)">重置密码</button></div></td></tr></tbody></table></div></section>
 
-    <!-- 统计卡片 -->
-    <div class="stats-row">
-      <div class="stat-card">
-        <div class="stat-num">{{ accounts.length }}</div>
-        <div class="stat-label">账号总数</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-num green">{{ activeCount }}</div>
-        <div class="stat-label">正常启用</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-num orange">{{ disabledCount }}</div>
-        <div class="stat-label">已停用</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-num red">{{ lockedCount }}</div>
-        <div class="stat-label">锁定中</div>
-      </div>
-    </div>
+    <teleport to="body"><div v-if="createOpen" class="modal-overlay" @click.self="closeCreate"><section class="modal-panel"><header class="modal-header"><div><h3>创建登录账号</h3><p>账号角色由人员类型自动确定</p></div><button class="icon-btn" @click="closeCreate"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header><div class="modal-body"><div class="form-stack"><label><span>关联人员 *</span><select v-model="createForm.personId" @change="syncSuggestedUsername"><option :value="0" disabled>请选择未绑定账号的人员</option><option v-for="person in unboundPeople" :key="person.id" :value="person.id">{{ person.personName }} · {{ typeLabel(person.personType) }} · {{ person.personNo }}</option></select></label><label><span>用户名</span><input v-model.trim="createForm.username" placeholder="留空时使用学号、工号或人员编号" /></label><label class="check"><input v-model="createForm.autoGeneratePassword" type="checkbox" /><span>由系统生成安全初始密码</span></label><label v-if="!createForm.autoGeneratePassword"><span>初始密码 *</span><input v-model="createForm.initialPassword" type="password" autocomplete="new-password" /></label></div><p v-if="formError" class="form-error">{{ formError }}</p></div><footer class="modal-footer"><button class="ghost-btn" @click="closeCreate">取消</button><button class="primary-btn" :disabled="saving" @click="createAccount">{{ saving ? '创建中…' : '创建账号' }}</button></footer></section></div></teleport>
 
-    <!-- 工具栏 -->
-    <div class="toolbar">
-      <div class="toolbar-left">
-        <input v-model="searchText" placeholder="搜索用户名..." class="search-input" @keyup.enter="pageNum = 1" />
-        <select v-model="filterType" class="tool-select">
-          <option value="">全部角色</option>
-          <option :value="1">学生</option>
-          <option :value="2">教师</option>
-          <option :value="3">管理员</option>
-        </select>
-        <select v-model="filterStatus" class="tool-select">
-          <option value="">全部状态</option>
-          <option :value="1">正常</option>
-          <option :value="2">停用</option>
-          <option :value="3">锁定</option>
-        </select>
-      </div>
-      <div class="toolbar-right">
-        <span class="total-label">共 {{ filteredList.length }} 个账号</span>
-        <button class="add-btn" @click="openCreateDialog">+ 创建账号</button>
-      </div>
-    </div>
+    <teleport to="body"><div v-if="resetOpen" class="modal-overlay" @click.self="closeReset"><section class="modal-panel small"><header class="modal-header"><div><h3>重置账号密码</h3><p>{{ selectedPerson?.account?.username }} · {{ selectedPerson?.personName }}</p></div><button class="icon-btn" @click="closeReset"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header><div class="modal-body"><div class="form-stack"><label class="check"><input v-model="resetForm.autoGeneratePassword" type="checkbox" /><span>由系统生成新密码</span></label><label v-if="!resetForm.autoGeneratePassword"><span>新密码 *</span><input v-model="resetForm.initialPassword" type="password" autocomplete="new-password" /></label></div><p class="hint">重置后现有登录会话将失效，用户下次登录必须修改密码。</p><p v-if="formError" class="form-error">{{ formError }}</p></div><footer class="modal-footer"><button class="ghost-btn" @click="closeReset">取消</button><button class="primary-btn" :disabled="saving" @click="resetPassword">确认重置</button></footer></section></div></teleport>
 
-    <!-- 表格 -->
-    <div class="data-table-wrap">
-      <table class="data-table">
-        <thead>
-          <tr><th>用户名</th><th>姓名</th><th>角色</th><th>状态</th><th>最后登录</th><th>登录IP</th><th>操作</th></tr>
-        </thead>
-        <tbody>
-          <tr v-for="a in pagedList" :key="a.id">
-            <td><span class="acct-name">{{ a.username }}</span></td>
-            <td>{{ a.realName }}</td>
-            <td><span class="type-tag" :class="'type-' + a.userType">{{ roleLabel(a.userType) }}</span></td>
-            <td><span class="status-dot" :class="statusClass(a.status)"></span> {{ statusLabel(a.status) }}</td>
-            <td>{{ a.lastLoginAt || '--' }}</td>
-            <td>{{ a.lastLoginIp || '--' }}</td>
-            <td class="action-cell">
-              <button v-if="a.status === 1" class="row-btn danger" @click="toggleStatus(a)">停用</button>
-              <button v-else class="row-btn" @click="toggleStatus(a)">启用</button>
-              <button class="row-btn" @click="resetPwd(a)">重置密码</button>
-            </td>
-          </tr>
-          <tr v-if="pagedList.length === 0"><td colspan="7" class="empty-cell">暂无数据</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <div class="pagination" v-if="filteredList.length > pageSize">
-      <button :disabled="pageNum <= 1" @click="pageNum--">上一页</button>
-      <span>{{ pageNum }} / {{ totalPages }}</span>
-      <button :disabled="pageNum >= totalPages" @click="pageNum++">下一页</button>
-    </div>
-
-    <!-- 创建账号弹窗 -->
-    <teleport to="body">
-      <transition name="modal-fade">
-        <div v-if="showCreate" class="modal-overlay" @click.self="showCreate = false">
-          <div class="modal-panel">
-            <div class="modal-header">
-              <h3>创建账号</h3>
-              <button class="modal-close" @click="showCreate = false"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
-            </div>
-            <div class="modal-body">
-              <div class="form-g">
-                <label>选择人员 <span class="required">*</span></label>
-                <select v-model="form.personId" class="form-input">
-                  <option :value="0" disabled>请选择人员</option>
-                  <option v-for="p in personOptions" :key="p.id" :value="p.id">{{ p.name }} ({{ roleLabel(p.type) }}, {{ p.dept }})</option>
-                </select>
-              </div>
-              <div class="form-g">
-                <label>用户名 <span class="required">*</span></label>
-                <input v-model="form.username" class="form-input" placeholder="请输入登录用户名" maxlength="64" />
-              </div>
-              <div class="form-g">
-                <label>用户角色 <span class="required">*</span></label>
-                <div class="radio-group">
-                  <label class="radio-item"><input type="radio" v-model="form.userType" :value="1" /> 学生</label>
-                  <label class="radio-item"><input type="radio" v-model="form.userType" :value="2" /> 教师</label>
-                  <label class="radio-item"><input type="radio" v-model="form.userType" :value="3" /> 管理员</label>
-                </div>
-              </div>
-              <div class="form-g">
-                <label>初始密码</label>
-                <div class="pwd-row">
-                  <input v-model="form.password" class="form-input" type="text" placeholder="输入或生成随机密码" />
-                  <button class="gen-btn" @click="generatePwd">生成随机</button>
-                </div>
-              </div>
-              <div class="form-check">
-                <input type="checkbox" v-model="form.forceReset" id="forceReset" />
-                <label for="forceReset">首次登录需修改密码</label>
-              </div>
-            </div>
-            <div class="modal-footer">
-              <button class="modal-btn cancel" @click="showCreate = false">取消</button>
-              <button class="modal-btn primary" @click="submitCreate" :disabled="!canCreate">确认创建</button>
-            </div>
-          </div>
-        </div>
-      </transition>
-    </teleport>
+    <teleport to="body"><div v-if="temporaryOpen" class="modal-overlay"><section class="modal-panel small"><header class="modal-header"><div><h3>{{ resultTitle }}</h3><p>该密码仅在本次操作后展示</p></div></header><div class="modal-body"><div v-if="temporaryPassword" class="password-box"><code>{{ temporaryPassword }}</code><button class="ghost-btn" @click="copyPassword">复制</button></div><p v-else class="hint">已使用你填写的密码完成操作，系统不会回显该密码。</p></div><footer class="modal-footer"><button class="primary-btn" @click="temporaryOpen = false">我已妥善记录</button></footer></section></div></teleport>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { createPersonAccount, disablePersonAccount, enablePersonAccount, getPersonPage, resetPersonPassword, type AccountStatus, type PersonDetail, type PersonType } from '../../utils/personnelApi'
 
-// ========== Mock 数据 ==========
-interface Account {
-  id: number; username: string; realName: string; userType: number
-  status: number; lastLoginAt: string; lastLoginIp: string
-}
-const accounts = ref<Account[]>([
-  { id:1, username:'admin', realName:'王管理员', userType:3, status:1, lastLoginAt:'2026-07-09 10:19', lastLoginIp:'0:0:0:0:0:0:0:1' },
-  { id:2, username:'zhang_stu', realName:'张同学', userType:1, status:1, lastLoginAt:'2026-07-08 08:15', lastLoginIp:'10.0.0.15' },
-  { id:3, username:'li_teacher', realName:'李老师', userType:2, status:1, lastLoginAt:'2026-07-08 09:30', lastLoginIp:'192.168.1.50' },
-  { id:4, username:'zhao_stu', realName:'赵同学', userType:1, status:2, lastLoginAt:'--', lastLoginIp:'--' },
-  { id:5, username:'wang_stu', realName:'王同学', userType:1, status:1, lastLoginAt:'2026-07-07 14:00', lastLoginIp:'10.0.0.20' },
-  { id:6, username:'sun_teacher', realName:'孙老师', userType:2, status:3, lastLoginAt:'--', lastLoginIp:'--' },
-])
-
-const personOptions = [
-  { id:1, name:'张同学', type:1, dept:'计算机科学与技术学院' },
-  { id:2, name:'李老师', type:2, dept:'化学与材料学院' },
-  { id:3, name:'赵同学', type:1, dept:'物理学院' },
-  { id:4, name:'刘同学', type:1, dept:'计算机科学与技术学院' },
-]
-
-// ========== 筛选/分页 ==========
-const searchText = ref('')
-const filterType = ref<number | ''>('')
-const filterStatus = ref<number | ''>('')
-const pageNum = ref(1)
-const pageSize = 8
-
-const filteredList = computed(() => {
-  let list = accounts.value
-  if (searchText.value) {
-    const kw = searchText.value.toLowerCase()
-    list = list.filter(a => a.username.toLowerCase().includes(kw) || a.realName.includes(kw))
-  }
-  if (filterType.value !== '') list = list.filter(a => a.userType === filterType.value)
-  if (filterStatus.value !== '') list = list.filter(a => a.status === filterStatus.value)
-  return list
-})
-const totalPages = computed(() => Math.ceil(filteredList.value.length / pageSize))
-const pagedList = computed(() => {
-  const s = (pageNum.value - 1) * pageSize
-  return filteredList.value.slice(s, s + pageSize)
-})
-
-const activeCount = computed(() => accounts.value.filter(a => a.status === 1).length)
-const disabledCount = computed(() => accounts.value.filter(a => a.status === 2).length)
-const lockedCount = computed(() => accounts.value.filter(a => a.status === 3).length)
-
-// ========== 创建弹窗 ==========
-const showCreate = ref(false)
-const form = reactive({ personId: 0, username: '', userType: 1, password: '', forceReset: true })
-const canCreate = computed(() => form.personId > 0 && form.username.trim().length > 0)
-
-function openCreateDialog() {
-  form.personId = 0; form.username = ''; form.userType = 1; form.password = ''; form.forceReset = true
-  showCreate.value = true
-}
-function generatePwd() {
-  const chars = 'ABCDEFGHJKMNPQRSTWXYZabcdefghjkmnpqrstwxyz2345678'
-  let pwd = ''
-  for (let i = 0; i < 10; i++) pwd += chars[Math.floor(Math.random() * chars.length)]
-  form.password = pwd
-}
-function submitCreate() {
-  if (!canCreate.value) return
-  const person = personOptions.find(p => p.id === form.personId)
-  accounts.value.unshift({
-    id: Date.now(), username: form.username.trim(), realName: person?.name || '',
-    userType: form.userType, status: 1,
-    lastLoginAt: '--', lastLoginIp: '--',
-  })
-  showCreate.value = false
-}
-
-// ========== 操作 ==========
-function toggleStatus(a: Account) {
-  a.status = a.status === 1 ? 2 : 1
-}
-function resetPwd(a: Account) {
-  const newPwd = 'reset' + Math.random().toString(36).slice(2, 8)
-  alert('已重置 ' + a.username + ' 的密码为: ' + newPwd + '\n（实际将调用后端 API）')
-}
-
-function roleLabel(t: number) { const m: Record<number,string> = {1:'学生',2:'教师',3:'管理员'}; return m[t] || '' }
-function statusLabel(s: number) { const m: Record<number,string> = {1:'正常',2:'停用',3:'锁定'}; return m[s] || '' }
-function statusClass(s: number) { return s === 1 ? 'active' : s === 2 ? 'inactive' : 'locked' }
+const people = ref<PersonDetail[]>([])
+const loading = ref(false)
+const saving = ref(false)
+const keyword = ref('')
+const typeFilter = ref<PersonType | ''>('')
+const statusFilter = ref<AccountStatus | ''>('')
+const createOpen = ref(false)
+const resetOpen = ref(false)
+const temporaryOpen = ref(false)
+const temporaryPassword = ref('')
+const resultTitle = ref('账号操作成功')
+const selectedPerson = ref<PersonDetail | null>(null)
+const formError = ref('')
+const message = reactive({ text: '', type: 'success' as 'success' | 'error' })
+const createForm = reactive({ personId: 0, username: '', autoGeneratePassword: true, initialPassword: '' })
+const resetForm = reactive({ autoGeneratePassword: true, initialPassword: '' })
+const accounts = computed(() => people.value.filter(person => person.account))
+const unboundPeople = computed(() => people.value.filter(person => !person.account && person.personStatus === 1))
+const activeCount = computed(() => accounts.value.filter(person => person.account?.accountStatus === 1).length)
+const inactiveCount = computed(() => accounts.value.length - activeCount.value)
+const filteredAccounts = computed(() => accounts.value.filter(person => { const text = `${person.account?.username || ''} ${person.personName} ${person.personNo}`.toLowerCase(); return (!keyword.value || text.includes(keyword.value.toLowerCase())) && (typeFilter.value === '' || person.personType === typeFilter.value) && (statusFilter.value === '' || person.account?.accountStatus === statusFilter.value) }))
+function errorText(error: unknown): string { return error instanceof Error ? error.message : '操作失败，请稍后重试' }
+function showMessage(text: string, type: 'success' | 'error' = 'success'): void { message.text = text; message.type = type; window.setTimeout(() => { if (message.text === text) message.text = '' }, 4000) }
+function typeLabel(value?: number): string { return ({ 1: '学生', 2: '教师', 3: '管理员' } as Record<number, string>)[value || 0] || '未知' }
+function accountStatusLabel(value?: number): string { return ({ 1: '正常', 2: '停用', 3: '锁定' } as Record<number, string>)[value || 0] || '未知' }
+async function loadPeople(): Promise<void> { loading.value = true; try { const result = await getPersonPage({ pageNum: 1, pageSize: 1000 }); people.value = result.records } catch (error) { people.value = []; showMessage(errorText(error), 'error') } finally { loading.value = false } }
+function resetFilters(): void { keyword.value = ''; typeFilter.value = ''; statusFilter.value = '' }
+function openCreate(): void { Object.assign(createForm, { personId: 0, username: '', autoGeneratePassword: true, initialPassword: '' }); formError.value = ''; createOpen.value = true }
+function closeCreate(): void { if (!saving.value) createOpen.value = false }
+function syncSuggestedUsername(): void { const person = unboundPeople.value.find(item => item.id === createForm.personId); createForm.username = person?.studentNo || person?.employeeNo || person?.personNo || '' }
+async function createAccount(): Promise<void> { if (!createForm.personId) { formError.value = '请选择关联人员'; return } if (!createForm.autoGeneratePassword && !createForm.initialPassword) { formError.value = '请填写初始密码'; return } saving.value = true; try { const result = await createPersonAccount(createForm.personId, { username: createForm.username || undefined, initialPassword: createForm.autoGeneratePassword ? undefined : createForm.initialPassword, autoGeneratePassword: createForm.autoGeneratePassword }); createOpen.value = false; resultTitle.value = '账号创建成功'; temporaryPassword.value = result.temporaryPassword || ''; temporaryOpen.value = true; await loadPeople() } catch (error) { formError.value = errorText(error) } finally { saving.value = false } }
+function openReset(person: PersonDetail): void { selectedPerson.value = person; Object.assign(resetForm, { autoGeneratePassword: true, initialPassword: '' }); formError.value = ''; resetOpen.value = true }
+function closeReset(): void { if (!saving.value) resetOpen.value = false }
+async function resetPassword(): Promise<void> { if (!selectedPerson.value) return; if (!resetForm.autoGeneratePassword && !resetForm.initialPassword) { formError.value = '请填写新密码'; return } saving.value = true; try { const result = await resetPersonPassword(selectedPerson.value.id, { initialPassword: resetForm.autoGeneratePassword ? undefined : resetForm.initialPassword, autoGeneratePassword: resetForm.autoGeneratePassword }); resetOpen.value = false; resultTitle.value = '密码重置成功'; temporaryPassword.value = result.temporaryPassword || ''; temporaryOpen.value = true; await loadPeople() } catch (error) { formError.value = errorText(error) } finally { saving.value = false } }
+async function toggleAccount(person: PersonDetail): Promise<void> { const active = person.account?.accountStatus === 1; if (!window.confirm(`确认${active ? '停用' : '启用'}账号“${person.account?.username}”？`)) return; try { if (active) await disablePersonAccount(person.id, '管理员在账号管理页停用'); else await enablePersonAccount(person.id); showMessage('账号状态已更新'); await loadPeople() } catch (error) { showMessage(errorText(error), 'error') } }
+async function copyPassword(): Promise<void> { try { await navigator.clipboard.writeText(temporaryPassword.value); showMessage('临时密码已复制') } catch { showMessage('复制失败，请手动选择密码', 'error') } }
+onMounted(loadPeople)
 </script>
 
 <style scoped>
-.am-page { height:100%; overflow-y:auto; padding:20px 24px }
-.page-header { margin-bottom:16px }
-.page-header h2 { font-size:20px; font-weight:600; color:#1a1a2e; margin:0 }
-.page-header p { margin:4px 0 0; font-size:13px; color:#999 }
-
-.stats-row { display:flex; gap:12px; margin-bottom:16px; flex-wrap:wrap }
-.stat-card { background:rgba(255,255,255,.65); backdrop-filter:blur(10px); border:1px solid rgba(0,0,0,.06); border-radius:12px; padding:14px 20px; min-width:110px; text-align:center }
-.stat-num { font-size:24px; font-weight:700; color:#1a1a2e; line-height:1.1 }
-.stat-label { font-size:12px; color:#999; margin-top:2px }
-.green { color:#27ae60 }
-.orange { color:#f39c12 }
-.red { color:#e74c3c }
-
-.toolbar { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:10px }
-.toolbar-left { display:flex; align-items:center; gap:8px }
-.toolbar-right { display:flex; align-items:center; gap:12px }
-.search-input { padding:8px 12px; border:1px solid rgba(0,0,0,.1); border-radius:10px; font-size:13px; outline:none; width:160px; background:rgba(255,255,255,.7) }
-.tool-select { padding:8px 12px; border:1px solid rgba(0,0,0,.1); border-radius:10px; font-size:13px; background:rgba(255,255,255,.7); outline:none; cursor:pointer }
-.total-label { font-size:13px; color:#999 }
-.add-btn { padding:8px 18px; border:none; border-radius:10px; background:linear-gradient(135deg,#1a73e8,#4a90d9); color:#fff; font-size:13px; font-weight:500; cursor:pointer }
-
-.data-table-wrap { background:rgba(255,255,255,.5); border-radius:12px; border:1px solid rgba(0,0,0,.04); overflow:hidden }
-.data-table { width:100%; border-collapse:collapse }
-.data-table th,.data-table td { padding:11px 14px; text-align:left; font-size:13px; border-bottom:1px solid rgba(0,0,0,.04) }
-.data-table th { font-weight:600; color:#666; background:rgba(0,0,0,.015); font-size:12px }
-.acct-name { font-weight:600; color:#1a1a2e }
-.type-tag { padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600 }
-.type-1 { background:rgba(76,175,80,.1); color:#2e7d32 }
-.type-2 { background:rgba(26,115,232,.1); color:#1557b0 }
-.type-3 { background:rgba(233,30,99,.1); color:#c2185b }
-.status-dot { display:inline-block; width:6px; height:6px; border-radius:50%; margin-right:4px }
-.status-dot.active { background:#27ae60 }
-.status-dot.inactive { background:#e74c3c }
-.status-dot.locked { background:#f39c12 }
-.action-cell { display:flex; gap:6px }
-.row-btn { padding:4px 12px; border:1px solid rgba(0,0,0,.1); border-radius:6px; background:#fff; font-size:11px; color:#555; cursor:pointer }
-.row-btn:hover { border-color:#1a73e8; color:#1a73e8 }
-.row-btn.danger { color:#e74c3c }
-.row-btn.danger:hover { border-color:#e74c3c }
-.empty-cell { text-align:center; color:#ccc; padding:40px }
-
-.pagination { display:flex; align-items:center; justify-content:center; gap:10px; margin-top:14px }
-.pagination button { padding:7px 16px; border:1px solid rgba(0,0,0,.1); border-radius:8px; background:#fff; font-size:13px; cursor:pointer; color:#555 }
-.pagination button:disabled { opacity:.4; cursor:not-allowed }
-</style>
-
-<!-- 弹窗样式 -->
-<style>
-.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; z-index:1100; padding:20px }
-.modal-panel { background:#fff; border-radius:16px; width:100%; max-width:500px; max-height:85vh; display:flex; flex-direction:column; box-shadow:0 16px 48px rgba(0,0,0,.15) }
-.modal-header { display:flex; align-items:center; justify-content:space-between; padding:20px 24px 0 }
-.modal-header h3 { margin:0; font-size:17px; font-weight:600; color:#1a1a2e }
-.modal-close { background:none; border:none; cursor:pointer; color:#aaa; padding:4px; border-radius:6px }
-.modal-close:hover { background:rgba(0,0,0,.05); color:#333 }
-.modal-body { padding:20px 24px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:14px }
-.modal-footer { display:flex; justify-content:flex-end; gap:10px; padding:16px 24px 20px; border-top:1px solid rgba(0,0,0,.06) }
-.modal-btn { padding:10px 24px; border-radius:10px; font-size:14px; cursor:pointer; border:none; font-weight:500; transition:.2s }
-.modal-btn.cancel { background:rgba(0,0,0,.04); color:#666 }
-.modal-btn.cancel:hover { background:rgba(0,0,0,.08) }
-.modal-btn.primary { background:linear-gradient(135deg,#1a73e8,#4a90d9); color:#fff }
-.modal-btn.primary:hover:not(:disabled) { box-shadow:0 4px 12px rgba(26,115,232,.3) }
-.modal-btn:disabled { opacity:.4; cursor:not-allowed }
-
-.form-g { display:flex; flex-direction:column; gap:4px }
-.form-g label { font-size:13px; font-weight:500; color:#555 }
-.required { color:#e74c3c }
-.form-input { padding:10px 14px; border:1px solid rgba(0,0,0,.1); border-radius:10px; font-size:14px; color:#333; outline:none; background:rgba(255,255,255,.7); transition:.15s; font-family:inherit; width:100%; box-sizing:border-box }
-.form-input:focus { border-color:#1a73e8 }
-.radio-group { display:flex; gap:20px }
-.radio-item { display:flex; align-items:center; gap:6px; font-size:14px; color:#333; cursor:pointer }
-.radio-item input[type=radio] { accent-color:#1a73e8 }
-.pwd-row { display:flex; gap:8px }
-.pwd-row .form-input { flex:1 }
-.gen-btn { padding:8px 14px; border:1px solid rgba(26,115,232,.3); border-radius:10px; background:rgba(26,115,232,.04); color:#1a73e8; font-size:12px; cursor:pointer; white-space:nowrap }
-.gen-btn:hover { background:rgba(26,115,232,.1) }
-.form-check { display:flex; align-items:center; gap:8px; font-size:13px; color:#555 }
-.form-check input[type=checkbox] { accent-color:#1a73e8 }
-
-.modal-fade-enter-active { transition:all .2s ease }
-.modal-fade-leave-active { transition:all .15s ease }
-.modal-fade-enter-from,.modal-fade-leave-to { opacity:0 }
-.modal-fade-enter-from .modal-panel { transform:scale(.94) translateY(12px) }
+.page-shell{height:100%;overflow:auto;padding:24px;color:#172033;background:transparent}.page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}.page-header h2{margin:0;font-size:22px}.page-header p,.modal-header p{margin:5px 0 0;color:#7b8495;font-size:13px}.primary-btn,.ghost-btn{border:0;border-radius:8px;padding:9px 15px;font:inherit;font-size:13px;cursor:pointer}.primary-btn{display:inline-flex;align-items:center;gap:7px;background:#2563eb;color:#fff}.primary-btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2}.ghost-btn{background:#eef1f6;color:#4b5565}.primary-btn:disabled{opacity:.45;cursor:not-allowed}.stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px}.stat-grid>div,.filter-panel,.table-card{background:#fff;border:1px solid #e7ebf1;border-radius:12px}.stat-grid>div{padding:16px 18px}.stat-grid span{display:block;color:#7b8495;font-size:12px}.stat-grid strong{display:block;margin-top:5px;font-size:24px}.filter-panel{display:grid;grid-template-columns:2fr 1fr 1fr auto;align-items:end;gap:10px;padding:15px;margin-bottom:14px}.filter-panel label,.form-stack label{display:flex;flex-direction:column;gap:6px}.filter-panel span,.form-stack>label>span{font-size:12px;color:#687386}.filter-panel input,.filter-panel select,.form-stack input,.form-stack select{box-sizing:border-box;width:100%;border:1px solid #dfe4ec;border-radius:8px;padding:9px 10px;background:#fff;font:inherit;font-size:13px;outline:none}.message{margin-bottom:12px;border-radius:8px;padding:10px 13px;font-size:13px}.message.success{background:#ecfdf3;color:#137a45}.message.error{background:#fff1f2;color:#b42336}.table-card{overflow:hidden}.table-scroll{overflow:auto}table{width:100%;min-width:900px;border-collapse:collapse}th,td{padding:13px 14px;border-bottom:1px solid #eef1f5;text-align:left;font-size:13px}th{background:#fafbfc;color:#687386;font-size:12px}td small{display:block;margin-top:4px;color:#9098a7}.tag{display:inline-block;border-radius:5px;padding:3px 8px}.type-1{background:#eefbf3;color:#187647}.type-2{background:#eff6ff;color:#1d4ed8}.type-3{background:#f5f3ff;color:#6d28d9}.status{display:inline-flex;align-items:center;gap:6px}.status i{width:7px;height:7px;border-radius:50%;background:#dc5b61}.status i.on{background:#22a06b}.row-actions{display:flex;gap:6px}.row-actions button{border:1px solid #dfe4ec;border-radius:7px;background:#fff;padding:6px 9px;color:#4b5565;font-size:12px;cursor:pointer}.state-box{padding:56px;text-align:center;color:#8992a2}.modal-overlay{position:fixed;inset:0;z-index:1200;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(15,23,42,.42)}.modal-panel{width:min(620px,100%);max-height:88vh;display:flex;flex-direction:column;background:#fff;border-radius:14px}.modal-panel.small{width:min(500px,100%)}.modal-header{display:flex;justify-content:space-between;padding:20px 22px;border-bottom:1px solid #eef1f5}.modal-header h3{margin:0;font-size:18px}.icon-btn{border:0;background:none;cursor:pointer}.icon-btn svg{width:20px;height:20px;fill:none;stroke:#687386;stroke-width:2}.modal-body{padding:20px 22px;overflow:auto}.form-stack{display:flex;flex-direction:column;gap:15px}.form-stack .check{flex-direction:row;align-items:center}.form-stack .check input{width:auto}.form-stack .check span{font-size:13px;color:#4b5565}.hint{margin:14px 0 0;color:#7b8495;font-size:12px;line-height:1.6}.form-error{color:#b42336;font-size:13px}.modal-footer{display:flex;justify-content:flex-end;gap:8px;padding:15px 22px;border-top:1px solid #eef1f5}.password-box{display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid #cfe0ff;border-radius:9px;background:#f4f8ff;padding:13px}.password-box code{font-size:17px;color:#163f8c;word-break:break-all}@media(max-width:850px){.stat-grid{grid-template-columns:repeat(2,1fr)}.filter-panel{grid-template-columns:1fr 1fr}}@media(max-width:560px){.stat-grid,.filter-panel{grid-template-columns:1fr}.page-shell{padding:16px}}
 </style>
