@@ -131,7 +131,7 @@
 
             <!-- 操作 -->
             <div class="card-actions">
-              <button v-if="apply.status === 'pending'" class="action-btn danger" @click="cancelApply(apply.id)">取消申请</button>
+              <button v-if="apply.status === 'pending'" class="action-btn danger" @click="cancelApply(apply.applyNo)">取消申请</button>
               <button v-if="apply.status === 'rejected'" class="action-btn primary" @click="reApply(apply)">重新申请</button>
               <span v-if="apply.status === 'approved'" class="action-hint">{{ apply.type === 'lab' ? '请按时使用实验室' : '请按时前往实验室领用设备' }}</span>
               <span v-if="apply.status === 'cancelled'" class="action-hint cancelled-text">申请已取消</span>
@@ -201,7 +201,6 @@
 <script setup lang="ts">
 import { ref, computed, onBeforeUnmount, onMounted } from 'vue'
 import api from '../../utils/api'
-import { isMockMode } from '../../stores/authStore'
 
 interface BorrowApply {
   id: number
@@ -217,6 +216,11 @@ interface BorrowApply {
   pickupHint?: string
   rejectReason?: string
   peopleCount?: number
+}
+
+function fmtDt(dt: string | undefined | null): string {
+  if (!dt) return ''
+  return dt.replace('T', ' ').slice(0, 16)
 }
 
 const activeType = ref('all')
@@ -237,46 +241,15 @@ const statusFilters = computed(() => [
   { key: 'rejected', label: '已驳回', count: applies.value.filter(a => a.status === 'rejected').length },
 ])
 
-const MOCK_APPLIES: BorrowApply[] = [
-  // ---- 设备借用 ----
-  { id: 1, applyNo: 'JY-DEV-001', type: 'device', targetName: '数字示波器', targetNo: 'DQ-2024-001',
-    status: 'pending', startTime: '07-09 09:00', endTime: '07-10 18:00', createdAt: '2026-07-08 10:30' },
-  { id: 2, applyNo: 'JY-DEV-002', type: 'device', targetName: '高速离心机', targetNo: 'DQ-2024-002',
-    status: 'approved', startTime: '07-12 08:00', endTime: '07-14 17:00', createdAt: '2026-07-06 14:20',
-    approvedAt: '2026-07-07 09:15', pickupHint: '请到 A201 化学实验室联系实验室管理员领用设备' },
-  { id: 3, applyNo: 'JY-DEV-003', type: 'device', targetName: '紫外分光光度计', targetNo: 'DQ-2023-015',
-    status: 'rejected', startTime: '07-10 08:00', endTime: '07-12 17:00', createdAt: '2026-07-05 09:00',
-    approvedAt: '2026-07-05 16:30', rejectReason: '设备正在维修中，预计 7月15日恢复使用。请届时重新提交申请。' },
-  { id: 4, applyNo: 'JY-DEV-004', type: 'device', targetName: '信号发生器', targetNo: 'DQ-2024-008',
-    status: 'cancelled', startTime: '07-05 09:00', endTime: '07-06 17:00', createdAt: '2026-07-03 11:00' },
-
-  // ---- 场地预约 ----
-  { id: 5, applyNo: 'JY-LAB-001', type: 'lab', targetName: 'B103 物理实验室', targetNo: 'LAB-2024-B103',
-    status: 'pending', startTime: '2026-07-12', endTime: '09:00 ~ 12:00', createdAt: '2026-07-08 11:00',
-    peopleCount: 15 },
-  { id: 6, applyNo: 'JY-LAB-002', type: 'lab', targetName: 'C202 计算机实验室', targetNo: 'LAB-2024-C202',
-    status: 'approved', startTime: '2026-07-15', endTime: '14:00 ~ 17:00', createdAt: '2026-07-07 08:30',
-    approvedAt: '2026-07-07 16:00', peopleCount: 30, pickupHint: '请按时到 C202 使用实验室，结束后清理场地并关闭设备' },
-  { id: 7, applyNo: 'JY-LAB-003', type: 'lab', targetName: 'A305 分析化学实验室', targetNo: 'LAB-2023-A305',
-    status: 'rejected', startTime: '2026-07-11', endTime: '13:00 ~ 16:00', createdAt: '2026-07-06 16:00',
-    approvedAt: '2026-07-07 10:00', peopleCount: 10,
-    rejectReason: '该时间段实验室已被其他班级预约占用，请调整时间后重新提交。建议选择 7月12日 或 7月14日。' },
-  { id: 8, applyNo: 'JY-LAB-004', type: 'lab', targetName: 'G102 环境监测实验室', targetNo: 'LAB-2024-G102',
-    status: 'pending', startTime: '2026-07-18', endTime: '08:00 ~ 11:00', createdAt: '2026-07-08 09:00',
-    peopleCount: 8 },
-]
-
 const applies = ref<BorrowApply[]>([])
 
 async function loadData() {
-  if (isMockMode.value) { applies.value = [...MOCK_APPLIES]; return }
   const [deviceResult, labResult] = await Promise.allSettled([
     api.get('/equipment/borrow-applies/my', { params: { pageNum: 1, pageSize: 100 } }),
     api.get('/lab-management/reservations/my', { params: { page: 1, pageSize: 100 } })
   ])
   const items: BorrowApply[] = []
 
-  // 设备借用接口与预约接口独立处理，任一接口暂时失败时不隐藏另一类申请。
   if (deviceResult.status === 'fulfilled') {
     const records = deviceResult.value.data?.data?.records || []
     records.forEach((r: any) => {
@@ -288,10 +261,10 @@ async function loadData() {
         targetName: r.deviceName || '',
         targetNo: r.deviceNo || `DEV-${r.deviceId || ''}`,
         status: statusMap[r.applyStatus] || 'pending',
-        startTime: r.expectedStartTime || '',
-        endTime: r.expectedReturnTime || '',
-        createdAt: r.createdAt || '',
-        approvedAt: r.applyStatus && r.applyStatus !== 1 ? (r.updatedAt || undefined) : undefined,
+        startTime: fmtDt(r.expectedStartTime),
+        endTime: fmtDt(r.expectedReturnTime),
+        createdAt: fmtDt(r.createdAt),
+        approvedAt: r.applyStatus && r.applyStatus !== 1 ? fmtDt(r.updatedAt) : undefined,
         pickupHint: r.applyStatus === 2 ? '申请已通过，请等待管理员办理出库。' : undefined,
         rejectReason: r.rejectReason || undefined
       })
@@ -300,7 +273,6 @@ async function loadData() {
     console.error('设备借用记录加载失败：', deviceResult.reason)
   }
 
-  // 场地预约记录：后端返回 ReservationResponse。
   if (labResult.status === 'fulfilled') {
     const records = labResult.value.data?.data?.records || []
     records.forEach((r: any) => {
@@ -314,8 +286,8 @@ async function loadData() {
         status: (statusMap[r.reservationStatus] || 'pending') as BorrowApply['status'],
         startTime: r.reservationDate || '',
         endTime: r.startTime && r.endTime ? `${r.startTime} ~ ${r.endTime}` : '',
-        createdAt: r.createdAt || '',
-        approvedAt: r.approveTime || undefined,
+        createdAt: fmtDt(r.createdAt),
+        approvedAt: r.approveTime ? fmtDt(r.approveTime) : undefined,
         peopleCount: r.peopleCount || undefined
       })
     })
@@ -354,13 +326,24 @@ function typeLabel(t: string): string {
   return t === 'device' ? '设备借用' : '场地预约'
 }
 
-function cancelApply(id: number): void {
-  const a = applies.value.find(x => x.id === id)
-  if (a && confirm(`确定要取消对「${a.targetName}」的申请吗？`)) { a.status = 'cancelled' }
+async function cancelApply(applyNo: string): Promise<void> {
+  const a = applies.value.find(x => x.applyNo === applyNo)
+  if (!a || !confirm(`确定要取消对「${a.targetName}」的申请吗？`)) return
+  try {
+    if (a.type === 'device') {
+      await api.post(`/equipment/borrows/${encodeURIComponent(applyNo)}/cancel`)
+    } else {
+      await api.patch(`/lab-management/reservations/${encodeURIComponent(applyNo)}/cancel`, { reason: '用户主动取消' })
+    }
+    a.status = 'cancelled'
+  } catch (e: any) {
+    alert(e?.response?.data?.message || e?.message || '取消失败')
+  }
 }
 function reApply(apply: BorrowApply): void {
-  const page = apply.type === 'device' ? '设备查询' : '实验室查询'
-  alert(`即将跳转到${page}页面，重新提交「${apply.targetName}」的申请`)
+  const key = apply.type === 'device' ? 'device-search' : 'lab-search'
+  const name = apply.type === 'device' ? '设备查询' : '实验室查询'
+  emit('navigate', { key, name })
 }
 function goDeviceSearch(): void { emit('navigate', { key: 'device-search', name: '设备查询' }) }
 function goLabSearch(): void { emit('navigate', { key: 'lab-search', name: '实验室查询' }) }

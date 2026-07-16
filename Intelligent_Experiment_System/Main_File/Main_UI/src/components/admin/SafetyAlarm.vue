@@ -145,30 +145,24 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, onMounted } from 'vue'
+import { getUnifiedAlerts, handleDeviceAlert, handleMaterialAlert, type UnifiedAlert } from '../../utils/alertApi'
 
 type AlarmType = 'iot' | 'consumable'
 type AlarmLevel = 'high' | 'normal'
 type HandleStatus = 'pending' | 'done'
 
 interface Alarm {
-  id: number; alarmNo: string; alarmType: AlarmType; alarmLevel: AlarmLevel
+  id: string; alarmNo: string; alarmType: AlarmType; alarmLevel: AlarmLevel
   labName: string; alarmObject: string; alarmContent: string
   alarmValue: string; thresholdValue: string; alarmTime: string
   handleStatus: HandleStatus; handlerName: string | null
   handleResult: string | null; remark: string | null
 }
 
-const alarms = ref<Alarm[]>([
-  { id:1, alarmNo:'ALM-2024-001', alarmType:'iot', alarmLevel:'high', labName:'A305 分析化学实验室', alarmObject:'温湿度传感器 #03', alarmContent:'温度异常，超过安全上限', alarmValue:'38.5℃', thresholdValue:'35℃', alarmTime:'2026-07-09 10:30', handleStatus:'pending', handlerName:null, handleResult:null, remark:null },
-  { id:2, alarmNo:'ALM-2024-002', alarmType:'consumable', alarmLevel:'normal', labName:'B103 物理实验室', alarmObject:'无水乙醇 (500ml)', alarmContent:'库存不足，低于安全库存', alarmValue:'3 瓶', thresholdValue:'5 瓶', alarmTime:'2026-07-08 16:00', handleStatus:'pending', handlerName:null, handleResult:null, remark:null },
-  { id:3, alarmNo:'ALM-2024-003', alarmType:'iot', alarmLevel:'high', labName:'C202 计算机实验室', alarmObject:'烟雾传感器 #01', alarmContent:'烟雾浓度异常，疑似线路过热', alarmValue:'0.8 mg/m³', thresholdValue:'0.5 mg/m³', alarmTime:'2026-07-09 09:00', handleStatus:'pending', handlerName:null, handleResult:null, remark:null },
-  { id:4, alarmNo:'ALM-2024-004', alarmType:'iot', alarmLevel:'normal', labName:'D108 生物培养实验室', alarmObject:'CO₂浓度传感器', alarmContent:'CO₂浓度偏高，通风不足', alarmValue:'1800 ppm', thresholdValue:'1500 ppm', alarmTime:'2026-07-09 11:15', handleStatus:'pending', handlerName:null, handleResult:null, remark:null },
-  { id:5, alarmNo:'ALM-2024-005', alarmType:'consumable', alarmLevel:'high', labName:'A305 分析化学实验室', alarmObject:'浓硫酸 (AR 500ml)', alarmContent:'临近有效期，需及时处理', alarmValue:'距到期 15 天', thresholdValue:'90 天', alarmTime:'2026-07-08 08:00', handleStatus:'pending', handlerName:null, handleResult:null, remark:null },
-  { id:6, alarmNo:'ALM-2024-006', alarmType:'iot', alarmLevel:'normal', labName:'B103 物理实验室', alarmObject:'电压监测模块', alarmContent:'电压波动，超出正常范围', alarmValue:'238V', thresholdValue:'220V±10V', alarmTime:'2026-07-07 14:30', handleStatus:'done', handlerName:'王管理员', handleResult:'已联系电工检修，电压恢复正常', remark:'配电箱接线松动已紧固' },
-  { id:7, alarmNo:'ALM-2024-007', alarmType:'consumable', alarmLevel:'normal', labName:'D108 生物培养实验室', alarmObject:'琼脂粉 (500g)', alarmContent:'库存不足，影响实验安排', alarmValue:'1 瓶', thresholdValue:'3 瓶', alarmTime:'2026-07-06 09:00', handleStatus:'done', handlerName:'李老师', handleResult:'已发起采购申请，预计3天内到货', remark:null },
-  { id:8, alarmNo:'ALM-2024-008', alarmType:'iot', alarmLevel:'high', labName:'A305 分析化学实验室', alarmObject:'可燃气体探测器 #02', alarmContent:'检测到可燃气体浓度超标', alarmValue:'12% LEL', thresholdValue:'10% LEL', alarmTime:'2026-07-05 15:00', handleStatus:'done', handlerName:'王管理员', handleResult:'关闭气阀，通风半小时后浓度归零', remark:'学生实验操作不规范导致微量泄漏' },
-])
+const alarms = ref<Alarm[]>([])
+const loadError = ref(false)
+const loading = ref(true)
 
 const activeStatus = ref<HandleStatus | 'all'>('all')
 const filterType = ref('')
@@ -176,14 +170,45 @@ const filterLevel = ref('')
 const pageNum = ref(1)
 const pageSize = 6
 
+async function loadAlarms() {
+  loading.value = true
+  loadError.value = false
+  try {
+    const statusFilter = activeStatus.value === 'pending' ? 0 : activeStatus.value === 'done' ? 1 : undefined
+    const typeParam = (filterType.value || '') as '' | 'iot' | 'consumable'
+    const result = await getUnifiedAlerts({
+      pageNum: 1, pageSize: 500,
+      type: typeParam,
+      status: statusFilter,
+    })
+    alarms.value = result.records.map(r => ({
+      ...r,
+      id: r.id,
+      alarmNo: r.alarmNo,
+      alarmType: r.alarmType as AlarmType,
+      alarmLevel: r.alarmLevel as AlarmLevel,
+      handleStatus: r.handleStatus as HandleStatus,
+    }))
+    pageNum.value = 1
+  } catch (e) {
+    console.error('[SafetyAlarm] load error:', e)
+    loadError.value = true
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(() => loadAlarms())
+
 const statusTabs = computed(() => [
-  { key:'all' as const, label:'全部', count:alarms.value.length },
-  { key:'pending' as const, label:'未处理', count:alarms.value.filter(a => a.handleStatus === 'pending').length },
-  { key:'done' as const, label:'已处理', count:alarms.value.filter(a => a.handleStatus === 'done').length },
+  { key: 'all' as const, label: '全部', count: alarms.value.length },
+  { key: 'pending' as const, label: '未处理', count: alarms.value.filter(a => a.handleStatus === 'pending').length },
+  { key: 'done' as const, label: '已处理', count: alarms.value.filter(a => a.handleStatus === 'done').length },
 ])
 
+const todayStr = new Date().toISOString().slice(0, 10)
 const todayCount = computed(() =>
-  alarms.value.filter(a => a.alarmTime.startsWith('2026-07-09')).length
+  alarms.value.filter(a => a.alarmTime.startsWith(todayStr)).length
 )
 
 const filteredList = computed(() => {
@@ -206,21 +231,35 @@ function exceedText(a: Alarm) {
 // 处理弹窗
 const showHandle = ref(false)
 const currentAlarm = ref<Alarm | null>(null)
-const handleForm = reactive({ result:'', remark:'' })
+const handleForm = reactive({ result: '', remark: '' })
 function openHandle(a: Alarm) { currentAlarm.value = a; handleForm.result = ''; handleForm.remark = ''; showHandle.value = true }
-function doHandle() {
+async function doHandle() {
   if (!currentAlarm.value || !handleForm.result.trim()) return
   const a = currentAlarm.value
-  a.handleStatus = 'done'
-  a.handlerName = '王管理员'
-  a.handleResult = handleForm.result.trim()
-  a.remark = handleForm.remark.trim() || null
-  showHandle.value = false
+  try {
+    if (a.alarmType === 'iot') {
+      const devId = parseInt(a.id.replace('dev-', ''))
+      if (!isNaN(devId)) await handleDeviceAlert(devId, handleForm.result.trim())
+    } else {
+      const matId = parseInt(a.id.replace('mat-', ''))
+      if (!isNaN(matId)) await handleMaterialAlert(matId, handleForm.result.trim())
+    }
+    a.handleStatus = 'done'
+    a.handleResult = handleForm.result.trim()
+    a.remark = handleForm.remark.trim() || null
+    showHandle.value = false
+  } catch (e: any) {
+    alert(e?.response?.data?.message || e?.message || '处理失败')
+  }
 }
 
 // 详情弹窗
 const showDetail = ref(false)
 function openDetail(a: Alarm) { currentAlarm.value = a; showDetail.value = true }
+
+// 切换筛选时重新加载
+import { watch } from 'vue'
+watch([activeStatus, filterType], () => { loadAlarms() })
 </script>
 
 <style scoped>

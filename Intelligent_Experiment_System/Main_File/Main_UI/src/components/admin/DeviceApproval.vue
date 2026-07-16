@@ -2,7 +2,7 @@
   <div class="da-page">
     <div class="page-header">
       <h2>借用审批</h2>
-      <p>审核设备借用申请</p>
+      <p>审核设备借用申请 · 领用登记 · 归还登记</p>
     </div>
 
     <!-- 统计卡片 -->
@@ -12,101 +12,203 @@
         <div class="stat-label">待审批</div>
       </div>
       <div class="stat-card">
-        <div class="stat-num green">{{ todayApproved }}</div>
-        <div class="stat-label">今日通过</div>
+        <div class="stat-num green">{{ checkedOutCount }}</div>
+        <div class="stat-label">已领用</div>
       </div>
       <div class="stat-card">
-        <div class="stat-num">{{ monthApproved }}</div>
-        <div class="stat-label">本月通过</div>
+        <div class="stat-num">{{ returnedCount }}</div>
+        <div class="stat-label">已归还</div>
       </div>
       <div class="stat-card">
-        <div class="stat-num" :class="approvalRate >= 80 ? 'green' : 'orange'">{{ approvalRate }}%</div>
-        <div class="stat-label">通过率</div>
+        <div class="stat-num red">{{ overdueCount }}</div>
+        <div class="stat-label">逾期未还</div>
       </div>
     </div>
 
-    <!-- 筛选栏 -->
-    <div class="filter-bar">
-      <div class="filter-tabs">
-        <div
-          v-for="t in statusTabs"
-          :key="t.key"
-          class="filter-tab"
-          :class="{ active: activeStatus === t.key }"
-          @click="activeStatus = t.key; pageNum = 1"
-        >
-          {{ t.label }}
-          <span v-if="t.count !== undefined" class="tab-count">{{ t.count }}</span>
-        </div>
-      </div>
-      <input v-model="searchNo" placeholder="搜索申请单号..." class="search-input" @keyup.enter="pageNum = 1" />
-    </div>
-
-    <!-- 申请卡片列表 -->
-    <div class="card-list" v-if="pagedList.length > 0">
+    <!-- 顶部导航 Tab -->
+    <div class="section-tabs">
       <div
-        v-for="apply in pagedList"
-        :key="apply.id"
-        class="apply-card"
-        :class="'card-' + apply.status"
-      >
-        <div class="card-left">
-          <div class="card-header">
-            <span class="status-badge" :class="'badge-' + apply.status">{{ apply.statusName }}</span>
-            <span class="apply-no">{{ apply.applyNo }}</span>
-            <span class="apply-time">{{ apply.createdAt }}</span>
-          </div>
-          <div class="card-body">
-            <div class="card-info-row">
-              <span class="info-label">设备</span>
-              <span class="info-value device-link" @click="viewDevice(apply.deviceId)">{{ apply.deviceName }}（{{ apply.deviceNo }}）</span>
-            </div>
-            <div class="card-info-row">
-              <span class="info-label">申请人</span>
-              <span class="info-value">
-                {{ apply.applicantName }}
-                <span class="applicant-type" :class="apply.applicantType === 1 ? 'type-stu' : 'type-tea'">{{ apply.applicantTypeName }}</span>
-              </span>
-            </div>
-            <div class="card-info-row">
-              <span class="info-label">使用时段</span>
-              <span class="info-value">{{ apply.expectedStartTime }} ~ {{ apply.expectedReturnTime }}</span>
-            </div>
-            <!-- 驳回原因 -->
-            <div v-if="apply.status === 'rejected' && apply.rejectReason" class="reject-reason">
-              <span class="reason-label">驳回原因：</span>{{ apply.rejectReason }}
-            </div>
-            <!-- 领用提示 -->
-            <div v-if="apply.status === 'approved' && apply.pickupHint" class="pickup-hint">
-              <span class="hint-label">领用提示：</span>{{ apply.pickupHint }}
-            </div>
+        class="section-tab"
+        :class="{ active: activeSection === 'apply' }"
+        @click="switchSection('apply')"
+      >借用申请（{{ applyCount }}）</div>
+      <div
+        class="section-tab"
+        :class="{ active: activeSection === 'log' }"
+        @click="switchSection('log')"
+      >借用记录（{{ logCount }}）</div>
+    </div>
+
+    <!-- ==================== 借用申请列表 ==================== -->
+    <template v-if="activeSection === 'apply'">
+      <div class="action-bar">
+        <div class="filter-tabs">
+          <div
+            v-for="t in applyStatusTabs"
+            :key="t.key"
+            class="filter-tab"
+            :class="{ active: activeApplyStatus === t.key }"
+            @click="activeApplyStatus = t.key; pageNum = 1"
+          >
+            {{ t.label }}
+            <span v-if="t.count !== undefined" class="tab-count">{{ t.count }}</span>
           </div>
         </div>
-        <div class="card-right">
-          <template v-if="apply.status === 'pending'">
-            <button class="btn-reject" @click="openReject(apply)">驳回</button>
-            <button class="btn-approve" @click="openApprove(apply)">✓ 审批通过</button>
-          </template>
-          <template v-else-if="apply.status === 'approved'">
-            <button class="btn-revoke" @click="revokeApproval(apply)">撤销审批</button>
-          </template>
-          <span v-else class="card-final-text">
-            {{ apply.status === 'rejected' ? '已处理' : '已取消' }}
-          </span>
+        <input v-model="searchNo" placeholder="搜索申请单号..." class="search-input" @keyup.enter="pageNum = 1" />
+      </div>
+
+      <div class="card-list" v-if="pagedApplies.length > 0 && !loadError">
+        <div
+          v-for="apply in pagedApplies"
+          :key="apply.id"
+          class="apply-card"
+          :class="'card-' + apply.status"
+        >
+          <div class="card-left">
+            <div class="card-header">
+              <span class="status-badge" :class="'badge-' + apply.status">{{ apply.statusName }}</span>
+              <span class="apply-no">{{ apply.applyNo }}</span>
+              <span class="apply-time">{{ apply.createdAt }}</span>
+            </div>
+            <div class="card-body">
+              <div class="card-info-row">
+                <span class="info-label">设备</span>
+                <span class="info-value device-link" @click="viewDevice(apply.deviceId)">{{ apply.deviceName }}（{{ apply.deviceNo }}）</span>
+              </div>
+              <div class="card-info-row">
+                <span class="info-label">申请人</span>
+                <span class="info-value">
+                  {{ apply.applicantName }}
+                  <span class="applicant-type" :class="apply.applicantType === 1 ? 'type-stu' : 'type-tea'">{{ apply.applicantTypeName }}</span>
+                </span>
+              </div>
+              <div class="card-info-row">
+                <span class="info-label">使用时段</span>
+                <span class="info-value">{{ apply.expectedStartTime }} ~ {{ apply.expectedReturnTime }}</span>
+              </div>
+              <div v-if="apply.purpose" class="card-info-row">
+                <span class="info-label">用途</span>
+                <span class="info-value purpose-text">{{ apply.purpose }}</span>
+              </div>
+              <div v-if="apply.status === 'rejected' && apply.rejectReason" class="reject-reason">
+                <span class="reason-label">驳回原因：</span>{{ apply.rejectReason }}
+              </div>
+              <div v-if="apply.status === 'approved' && apply.pickupHint" class="pickup-hint">
+                <span class="hint-label">领用提示：</span>{{ apply.pickupHint }}
+              </div>
+            </div>
+          </div>
+          <div class="card-right">
+            <template v-if="apply.status === 'pending'">
+              <button class="btn-reject" @click="openReject(apply)">驳回</button>
+              <button class="btn-approve" @click="openApprove(apply)">✓ 审批通过</button>
+            </template>
+            <template v-else-if="apply.status === 'approved'">
+              <button class="btn-checkout" @click="doCheckOut(apply)">领用登记</button>
+            </template>
+            <span v-else class="card-final-text">
+              {{ apply.status === 'rejected' ? '已驳回' : '已取消' }}
+            </span>
+          </div>
         </div>
       </div>
-    </div>
 
-    <div v-else class="empty-state">
-      <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="#ccc" stroke-width="1.2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
-      <p>暂无{{ activeStatus !== 'all' ? statusLabel(activeStatus) + '的' : '' }}借用申请</p>
-    </div>
+      <div v-else-if="loadError" class="empty-state" style="gap:12px">
+        <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="#e74c3c" stroke-width="1.2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <p style="color:#e74c3c;margin:0">数据加载失败</p>
+        <span style="font-size:12px;color:#999">请检查后端服务是否正常</span>
+        <button class="retry-btn" @click="loadApplies();loadLogs()" style="padding:8px 20px;border:1px solid #1a73e8;border-radius:8px;background:#fff;color:#1a73e8;font-size:13px;cursor:pointer">重新加载</button>
+      </div>
 
-    <div class="pagination" v-if="filteredList.length > pageSize">
-      <button :disabled="pageNum <= 1" @click="pageNum--">上一页</button>
-      <span>{{ pageNum }} / {{ totalPages }}</span>
-      <button :disabled="pageNum >= totalPages" @click="pageNum++">下一页</button>
-    </div>
+      <div v-else class="empty-state">
+        <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="#ccc" stroke-width="1.2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+        <p>暂无{{ activeApplyStatus !== 'all' ? applyStatusLabel(activeApplyStatus) + '的' : '' }}借用申请</p>
+      </div>
+
+      <div class="pagination" v-if="filteredApplies.length > pageSize">
+        <button :disabled="pageNum <= 1" @click="pageNum--">上一页</button>
+        <span>{{ pageNum }} / {{ applyTotalPages }}</span>
+        <button :disabled="pageNum >= applyTotalPages" @click="pageNum++">下一页</button>
+      </div>
+    </template>
+
+    <!-- ==================== 借用记录 ==================== -->
+    <template v-if="activeSection === 'log'">
+      <div class="action-bar">
+        <div class="filter-tabs">
+          <div
+            v-for="t in logStatusTabs"
+            :key="t.key"
+            class="filter-tab"
+            :class="{ active: activeLogStatus === t.key }"
+            @click="activeLogStatus = t.key; logPageNum = 1"
+          >
+            {{ t.label }}
+            <span v-if="t.count !== undefined" class="tab-count">{{ t.count }}</span>
+          </div>
+        </div>
+        <div class="toolbar-right">
+          <button class="refresh-btn" @click="refreshLogs" :class="{ spinning: logRefreshing }">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            刷新
+          </button>
+          <button class="btn-overdue" @click="doDetectOverdue">
+            ⏰ 逾期检测
+          </button>
+        </div>
+      </div>
+
+      <div class="data-table-wrap" v-if="pagedLogs.length > 0">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>设备</th>
+              <th>借用人</th>
+              <th>预计归还</th>
+              <th>实际领出</th>
+              <th>实际归还</th>
+              <th>状态</th>
+              <th>备注</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="log in pagedLogs" :key="log.id">
+              <td><span class="device-name">{{ log.deviceName }}</span></td>
+              <td>{{ log.borrowerName || '用户' + log.borrowerId }}</td>
+              <td>{{ formatTime(log.expectedReturnTime) }}</td>
+              <td>{{ formatTime(log.actualOutTime) }}</td>
+              <td>{{ formatTime(log.actualReturnTime) }}</td>
+              <td>
+                <span class="log-status-tag" :class="'ls-' + log.status">{{ log.statusDesc }}</span>
+                <span v-if="log.isOverdue === 1" class="overdue-tag">逾期</span>
+              </td>
+              <td class="remark-cell">{{ log.returnRemark || '--' }}</td>
+              <td class="action-cell">
+                <button
+                  v-if="log.status === 1 || log.status === 3"
+                  class="row-btn checkin-btn"
+                  @click="openCheckIn(log)"
+                >归还登记</button>
+                <span v-else class="done-text">已归还</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div v-else class="empty-state">
+        <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="#ccc" stroke-width="1.2"><path d="M12 8v4l3 3M12 22a10 10 0 100-20 10 10 0 000 20z"/></svg>
+        <p style="margin:0">暂无借用记录</p>
+        <span style="font-size:12px;color:#bbb">借用记录在"审批通过 → 领用登记"后自动产生</span>
+      </div>
+
+      <div class="pagination" v-if="filteredLogs.length > logPageSize">
+        <button :disabled="logPageNum <= 1" @click="logPageNum--">上一页</button>
+        <span>{{ logPageNum }} / {{ logTotalPages }}</span>
+        <button :disabled="logPageNum >= logTotalPages" @click="logPageNum++">下一页</button>
+      </div>
+    </template>
 
     <!-- 审批通过弹窗 -->
     <teleport to="body">
@@ -164,91 +266,130 @@
         </div>
       </transition>
     </teleport>
+
+    <!-- 归还登记弹窗 -->
+    <teleport to="body">
+      <transition name="modal-fade">
+        <div v-if="showCheckIn" class="modal-overlay" @click.self="showCheckIn = false">
+          <div class="modal-panel">
+            <div class="modal-header">
+              <h3>归还登记</h3>
+              <button class="modal-close" @click="showCheckIn = false"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+            </div>
+            <div class="modal-body">
+              <div class="confirm-info">
+                <div class="ci-row"><span>设备</span><span>{{ currentLog?.deviceName }}</span></div>
+                <div class="ci-row"><span>预计归还</span><span>{{ formatTime(currentLog?.expectedReturnTime) }}</span></div>
+                <div class="ci-row"><span>实际领出</span><span>{{ formatTime(currentLog?.actualOutTime) }}</span></div>
+              </div>
+              <div class="form-g">
+                <label>归还备注</label>
+                <textarea v-model="checkInForm.remark" class="form-input form-textarea" rows="2" placeholder="如：设备外观完好，功能正常" maxlength="200" />
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="modal-btn cancel" @click="showCheckIn = false">取消</button>
+              <button class="modal-btn primary green" @click="doCheckIn">确认归还</button>
+            </div>
+          </div>
+        </div>
+      </transition>
+    </teleport>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted } from 'vue'
-import api from '../../utils/api'
-import { isMockMode } from '../../stores/authStore'
+import {
+  getBorrowApplies,
+  approveBorrowApply,
+  checkOutDevice,
+  checkInDevice,
+  getBorrowLogs,
+  detectOverdue,
+  type BorrowApplyItem,
+  type BorrowLogItem,
+  type BorrowStatus,
+} from '../../utils/deviceApi'
 
-type BorrowStatus = 'pending' | 'approved' | 'rejected' | 'cancelled'
+type ApplyStatus = BorrowStatus | 'all'
+type LogFilterStatus = 'all' | 1 | 2 | 3
 
-interface BorrowApply {
-  id: number; applyNo: string; deviceId: number; deviceName: string; deviceNo: string
-  applicantId: number; applicantName: string; applicantType: number; applicantTypeName: string
-  expectedStartTime: string; expectedReturnTime: string
-  status: BorrowStatus; statusName: string
-  rejectReason?: string; pickupHint?: string
-  createdAt: string; approvedAt?: string
-}
+// ==================== 数据 ====================
+const applies = ref<BorrowApplyItem[]>([])
+const logs = ref<BorrowLogItem[]>([])
+const loadError = ref(false)
+const logRefreshing = ref(false)
 
-const MOCK_APPLIES: BorrowApply[] = [
-  { id:1, applyNo:'JY-DEV-001', deviceId:1, deviceName:'数字示波器', deviceNo:'EQ-2024-002',
-    applicantId:101, applicantName:'张同学', applicantType:1, applicantTypeName:'学生',
-    expectedStartTime:'07-09 09:00', expectedReturnTime:'07-10 18:00',
-    status:'pending', statusName:'待审核', createdAt:'2026-07-08 10:30' },
-  { id:2, applyNo:'JY-DEV-002', deviceId:2, deviceName:'高速离心机', deviceNo:'EQ-2024-001',
-    applicantId:102, applicantName:'李老师', applicantType:2, applicantTypeName:'教师',
-    expectedStartTime:'07-12 08:00', expectedReturnTime:'07-14 17:00',
-    status:'pending', statusName:'待审核', createdAt:'2026-07-08 14:20' },
-  { id:3, applyNo:'JY-DEV-003', deviceId:3, deviceName:'紫外分光光度计', deviceNo:'EQ-2022-008',
-    applicantId:103, applicantName:'王同学', applicantType:1, applicantTypeName:'学生',
-    expectedStartTime:'07-10 08:00', expectedReturnTime:'07-12 17:00',
-    status:'pending', statusName:'待审核', createdAt:'2026-07-08 09:00' },
-  { id:4, applyNo:'JY-DEV-004', deviceId:4, deviceName:'PCR扩增仪', deviceNo:'EQ-2024-010',
-    applicantId:104, applicantName:'孙老师', applicantType:2, applicantTypeName:'教师',
-    expectedStartTime:'07-15 13:00', expectedReturnTime:'07-16 17:00',
-    status:'approved', statusName:'已通过', createdAt:'2026-07-07 08:00',
-    approvedAt:'2026-07-07 16:30', pickupHint:'请到 A201 化学实验室联系实验室管理员领用设备' },
-  { id:5, applyNo:'JY-DEV-005', deviceId:5, deviceName:'电子天平', deviceNo:'EQ-2024-003',
-    applicantId:105, applicantName:'赵同学', applicantType:1, applicantTypeName:'学生',
-    expectedStartTime:'07-11 09:00', expectedReturnTime:'07-11 12:00',
-    status:'rejected', statusName:'已驳回', createdAt:'2026-07-07 11:00',
-    approvedAt:'2026-07-07 15:00', rejectReason:'设备正在维修中，预计 7月15日恢复使用。请届时重新提交申请。' },
-  { id:6, applyNo:'JY-DEV-006', deviceId:6, deviceName:'显微镜', deviceNo:'EQ-2022-005',
-    applicantId:106, applicantName:'陈同学', applicantType:1, applicantTypeName:'学生',
-    expectedStartTime:'07-08 14:00', expectedReturnTime:'07-08 18:00',
-    status:'cancelled', statusName:'已取消', createdAt:'2026-07-06 10:00' },
-  { id:7, applyNo:'JY-DEV-007', deviceId:7, deviceName:'服务器机柜', deviceNo:'EQ-2023-020',
-    applicantId:107, applicantName:'周老师', applicantType:2, applicantTypeName:'教师',
-    expectedStartTime:'07-18 08:00', expectedReturnTime:'07-20 18:00',
-    status:'approved', statusName:'已通过', createdAt:'2026-07-06 16:00',
-    approvedAt:'2026-07-07 09:00' },
-  { id:8, applyNo:'JY-DEV-008', deviceId:2, deviceName:'高速离心机', deviceNo:'EQ-2024-001',
-    applicantId:108, applicantName:'刘同学', applicantType:1, applicantTypeName:'学生',
-    expectedStartTime:'07-16 09:00', expectedReturnTime:'07-16 17:00',
-    status:'rejected', statusName:'已驳回', createdAt:'2026-07-05 14:00',
-    approvedAt:'2026-07-06 10:00', rejectReason:'该时段设备已被其他教师预约占用，请调整时间后重新提交。' },
-]
-
-const applies = ref<BorrowApply[]>([])
-
-async function loadData() {
-  if (isMockMode.value) { applies.value = [...MOCK_APPLIES]; return }
+async function loadApplies() {
   try {
-    const res = await api.get('/equipment/borrow-applies', { params: { pageNum: 1, pageSize: 100 } })
-    const records = res.data?.data?.records || []
-    applies.value = records.map((r: any) => ({
-        id: r.id || 0, applyNo: r.applyNo || '', deviceId: r.deviceId || 0, deviceName: r.deviceName || '', deviceNo: r.deviceNo || '',
-        applicantId: r.applicantId || 0, applicantName: r.applicantName || '', applicantType: r.applicantType || 1, applicantTypeName: r.applicantType === 2 ? '教师' : '学生',
-        expectedStartTime: r.expectedStartTime || '', expectedReturnTime: r.expectedReturnTime || '',
-        status: mapBorrowStatus(r.applyStatus ?? r.status), statusName: r.applyStatusDesc || r.statusName || '待审核',
-        rejectReason: r.rejectReason, pickupHint: r.pickupHint, createdAt: r.createdAt || '',
-        approvedAt: r.approvedAt || (r.applyStatus && r.applyStatus !== 1 ? r.updatedAt : undefined)
+    const res = await getBorrowApplies({ pageNum: 1, pageSize: 100 })
+    applies.value = (res.records || []).map((r: Record<string, any>) => ({
+      ...r,
+      id: r.id,
+      applyNo: r.applyNo || '',
+      deviceId: r.deviceId,
+      deviceName: r.deviceName || '',
+      deviceNo: r.deviceNo || '',
+      applicantId: r.applicantId,
+      applicantName: r.applicantName || '',
+      applicantType: r.applicantType ?? 1,
+      applicantTypeName: r.applicantType === 2 ? '教师' : '学生',
+      expectedStartTime: formatLocalDt(r.expectedStartTime),
+      expectedReturnTime: formatLocalDt(r.expectedReturnTime),
+      purpose: r.purpose || '',
+      status: mapStatus(r.applyStatus),
+      statusName: r.applyStatusDesc || mapStatusName(mapStatus(r.applyStatus)),
+      rejectReason: r.rejectReason || '',
+      createdAt: formatLocalDt(r.createdAt),
     }))
-  } catch { /* API 不可用，请检查后端服务 */ }
+  } catch (e) {
+    console.error('加载借用申请失败:', e)
+    loadError.value = true
+  }
 }
 
-onMounted(() => loadData())
+async function loadLogs() {
+  try {
+    const res = await getBorrowLogs({ pageNum: 1, pageSize: 200 })
+    logs.value = (res.records || []).map(r => ({
+      ...r,
+      expectedReturnTime: r.expectedReturnTime ? formatLocalDt(r.expectedReturnTime) : null,
+      actualOutTime: r.actualOutTime ? formatLocalDt(r.actualOutTime) : null,
+      actualReturnTime: r.actualReturnTime ? formatLocalDt(r.actualReturnTime) : null,
+      createdAt: formatLocalDt(r.createdAt),
+      updatedAt: formatLocalDt(r.updatedAt),
+    }))
+  } catch (e) {
+    console.error('加载借用记录失败:', e)
+  }
+}
 
-// ========== 筛选 & 分页 ==========
-const activeStatus = ref<BorrowStatus | 'all'>('all')
+onMounted(() => {
+  loadApplies()
+  loadLogs()
+})
+
+// ==================== Tab 切换 ====================
+const activeSection = ref<'apply' | 'log'>('apply')
+function switchSection(s: 'apply' | 'log') { activeSection.value = s }
+
+const applyCount = computed(() => applies.value.length)
+const logCount = computed(() => logs.value.length)
+
+// ==================== 统计 ====================
+const pendingCount = computed(() => applies.value.filter(a => a.status === 'pending').length)
+const checkedOutCount = computed(() => logs.value.filter(l => l.status === 1).length)
+const returnedCount = computed(() => logs.value.filter(l => l.status === 2).length)
+const overdueCount = computed(() => logs.value.filter(l => l.status === 3).length)
+
+// ==================== 申请筛选 ====================
+const activeApplyStatus = ref<ApplyStatus>('all')
 const searchNo = ref('')
 const pageNum = ref(1)
 const pageSize = 6
 
-const statusTabs = computed(() => [
+const applyStatusTabs = computed(() => [
   { key: 'all' as const, label: '全部', count: applies.value.length },
   { key: 'pending' as const, label: '待审核', count: applies.value.filter(a => a.status === 'pending').length },
   { key: 'approved' as const, label: '已通过', count: applies.value.filter(a => a.status === 'approved').length },
@@ -256,102 +397,184 @@ const statusTabs = computed(() => [
   { key: 'cancelled' as const, label: '已取消', count: applies.value.filter(a => a.status === 'cancelled').length },
 ])
 
-const filteredList = computed(() => {
+const filteredApplies = computed(() => {
   let list = applies.value
-  if (activeStatus.value !== 'all') list = list.filter(a => a.status === activeStatus.value)
+  if (activeApplyStatus.value !== 'all') list = list.filter(a => a.status === activeApplyStatus.value)
   if (searchNo.value) list = list.filter(a => a.applyNo.toLowerCase().includes(searchNo.value.toLowerCase()))
   return list
 })
-const totalPages = computed(() => Math.ceil(filteredList.value.length / pageSize) || 1)
-const pagedList = computed(() => {
+const applyTotalPages = computed(() => Math.ceil(filteredApplies.value.length / pageSize) || 1)
+const pagedApplies = computed(() => {
   const s = (pageNum.value - 1) * pageSize
-  return filteredList.value.slice(s, s + pageSize)
+  return filteredApplies.value.slice(s, s + pageSize)
 })
 
-const pendingCount = computed(() => applies.value.filter(a => a.status === 'pending').length)
-const todayApproved = computed(() => {
-  const today = new Date().toISOString().slice(0, 10)
-  return applies.value.filter(a => a.status === 'approved' && a.approvedAt?.startsWith(today)).length
-})
-const monthApproved = computed(() => applies.value.filter(a => a.status === 'approved').length)
-const approvalRate = computed(() => {
-  const decided = applies.value.filter(a => a.status === 'approved' || a.status === 'rejected').length
-  if (decided === 0) return 0
-  return Math.round((applies.value.filter(a => a.status === 'approved').length / decided) * 100)
-})
-
-// ========== 审批弹窗 ==========
-const showApprove = ref(false)
-const showReject = ref(false)
-const currentApply = ref<BorrowApply | null>(null)
-const approveForm = reactive({ pickupHint: '' })
-const rejectForm = reactive({ reason: '' })
-
-const quickReasons = ['设备正在维修中', '该时段已被预约', '申请理由不充分', '设备暂不可借用', '其他原因请手动填写']
-
-function mapBorrowStatus(status: number | string): BorrowStatus {
-  const numericMap: Record<number, BorrowStatus> = { 1: 'pending', 2: 'approved', 3: 'rejected', 4: 'cancelled' }
-  if (typeof status === 'number') return numericMap[status] || 'pending'
-  return (status || 'pending') as BorrowStatus
+function applyStatusLabel(s: string): string {
+  const m: Record<string, string> = { pending: '待审核', approved: '已通过', rejected: '已驳回', cancelled: '已取消' }
+  return m[s] || s
 }
 
-function openApprove(apply: BorrowApply) {
+function mapStatus(s: number | string): BorrowStatus {
+  if (typeof s === 'number') {
+    return ({ 1: 'pending', 2: 'approved', 3: 'rejected', 4: 'cancelled' } as Record<number, BorrowStatus>)[s] || 'pending'
+  }
+  return (['pending', 'approved', 'rejected', 'cancelled'].includes(s) ? s : 'pending') as BorrowStatus
+}
+function mapStatusName(s: BorrowStatus): string {
+  const m: Record<BorrowStatus, string> = { pending: '待审核', approved: '已通过', rejected: '已驳回', cancelled: '已取消' }
+  return m[s] || '待审核'
+}
+
+// ==================== 借用记录筛选 ====================
+const activeLogStatus = ref<LogFilterStatus>('all')
+const logPageNum = ref(1)
+const logPageSize = 10
+
+const logStatusTabs = computed(() => [
+  { key: 'all' as const, label: '全部', count: logs.value.length },
+  { key: 1 as const, label: '借出中', count: logs.value.filter(l => l.status === 1).length },
+  { key: 2 as const, label: '已归还', count: logs.value.filter(l => l.status === 2).length },
+  { key: 3 as const, label: '逾期未还', count: logs.value.filter(l => l.status === 3).length },
+])
+
+const filteredLogs = computed(() => {
+  if (activeLogStatus.value === 'all') return logs.value
+  return logs.value.filter(l => l.status === activeLogStatus.value)
+})
+const logTotalPages = computed(() => Math.ceil(filteredLogs.value.length / logPageSize) || 1)
+const pagedLogs = computed(() => {
+  const s = (logPageNum.value - 1) * logPageSize
+  return filteredLogs.value.slice(s, s + logPageSize)
+})
+
+function formatTime(t: string | null | undefined): string {
+  if (!t) return '--'
+  return t.replace('T', ' ').slice(0, 16)
+}
+
+function refreshLogs() {
+  logRefreshing.value = true
+  loadLogs().finally(() => { logRefreshing.value = false })
+}
+
+// ==================== 审批操作 ====================
+const showApprove = ref(false)
+const showReject = ref(false)
+const currentApply = ref<BorrowApplyItem | null>(null)
+const approveForm = reactive({ pickupHint: '' })
+const rejectForm = reactive({ reason: '' })
+const quickReasons = ['设备正在维修中', '该时段已被预约', '申请理由不充分', '设备暂不可借用', '其他原因请手动填写']
+
+function openApprove(apply: BorrowApplyItem) {
   currentApply.value = apply
   approveForm.pickupHint = ''
   showApprove.value = true
 }
-function openReject(apply: BorrowApply) {
+function openReject(apply: BorrowApplyItem) {
   currentApply.value = apply
   rejectForm.reason = ''
   showReject.value = true
 }
+
 async function doApprove() {
   if (!currentApply.value) return
-  if (isMockMode.value) {
-    const a = applies.value.find(x => x.id === currentApply.value!.id)
-    if (a) { a.status = 'approved'; a.statusName = '已通过'; a.approvedAt = new Date().toISOString().slice(0, 16); a.pickupHint = approveForm.pickupHint.trim() || undefined }
-    showApprove.value = false; return
-  }
   try {
-    await api.post(`/equipment/borrows/${currentApply.value.applyNo}/approve`, { approved: true })
+    // 后端 BorrowApproveDTO 仅有 approved/rejectReason 字段，无 pickupHint
+    // 领用提示暂存前端 localStorage 以备展示
+    if (approveForm.pickupHint.trim()) {
+      localStorage.setItem(`pickup_hint_${currentApply.value.applyNo}`, approveForm.pickupHint.trim())
+    }
+    await approveBorrowApply({
+      applyNo: currentApply.value.applyNo,
+      action: 'approve',
+    })
     showApprove.value = false
-    activeStatus.value = 'approved'
-    await loadData()
-  } catch (e: any) { alert(e?.response?.data?.message || e?.message || '操作失败') }
+    activeApplyStatus.value = 'approved'
+    await loadApplies()
+    await loadLogs()
+  } catch (e: any) {
+    alert(e?.response?.data?.message || e?.message || '审批失败')
+  }
 }
+
 async function doReject() {
   if (!currentApply.value || !rejectForm.reason.trim()) return
-  if (isMockMode.value) {
-    const a = applies.value.find(x => x.id === currentApply.value!.id)
-    if (a) { a.status = 'rejected'; a.statusName = '已驳回'; a.rejectReason = rejectForm.reason.trim() }
-    showReject.value = false; return
-  }
   try {
-    await api.post(`/equipment/borrows/${currentApply.value.applyNo}/approve`, {
-      approved: false,
-      rejectReason: rejectForm.reason.trim()
+    await approveBorrowApply({
+      applyNo: currentApply.value.applyNo,
+      action: 'reject',
+      rejectReason: rejectForm.reason.trim(),
     })
     showReject.value = false
-    activeStatus.value = 'rejected'
-    await loadData()
-  } catch (e: any) { alert(e?.response?.data?.message || e?.message || '操作失败') }
-}
-function revokeApproval(apply: BorrowApply) {
-  if (confirm(`确定撤销对「${apply.deviceName}」的审批通过吗？该申请将退回待审核状态。`)) {
-    apply.status = 'pending'
-    apply.statusName = '待审核'
-    apply.approvedAt = undefined
-    apply.pickupHint = undefined
+    activeApplyStatus.value = 'rejected'
+    await loadApplies()
+  } catch (e: any) {
+    alert(e?.response?.data?.message || e?.message || '驳回失败')
   }
+}
+
+// ==================== 领用登记 ====================
+async function doCheckOut(apply: BorrowApplyItem) {
+  if (!confirm(`确认将「${apply.deviceName}」领出给申请人「${apply.applicantName}」吗？`)) return
+  try {
+    await checkOutDevice(apply.applyNo)
+    alert(`领用登记成功！设备「${apply.deviceName}」已标记为借用中。`)
+    await loadApplies()
+    await loadLogs()
+  } catch (e: any) {
+    alert(e?.response?.data?.message || e?.message || '领用登记失败')
+  }
+}
+
+// ==================== 归还登记 ====================
+const showCheckIn = ref(false)
+const currentLog = ref<BorrowLogItem | null>(null)
+const checkInForm = reactive({ remark: '' })
+
+function openCheckIn(log: BorrowLogItem) {
+  currentLog.value = log
+  checkInForm.remark = ''
+  showCheckIn.value = true
+}
+
+async function doCheckIn() {
+  if (!currentLog.value) return
+  try {
+    await checkInDevice(currentLog.value.id, checkInForm.remark.trim() || undefined)
+    alert('归还登记成功！')
+    showCheckIn.value = false
+    await loadLogs()
+    await loadApplies()
+  } catch (e: any) {
+    alert(e?.response?.data?.message || e?.message || '归还登记失败')
+  }
+}
+
+// ==================== 逾期检测 ====================
+async function doDetectOverdue() {
+  const activeLogs = logs.value.filter(l => l.status === 1)
+  if (activeLogs.length === 0) {
+    alert('当前没有正在借出中的设备记录，无需检测逾期。\n请先审批通过→领用登记，产生借用记录后再执行此操作。')
+    return
+  }
+  if (!confirm(`将扫描 ${activeLogs.length} 条借出中记录，标记超期未还的设备，确认执行？`)) return
+  try {
+    await detectOverdue()
+    alert(`逾期检测完成！共检查 ${activeLogs.length} 条借出记录。`)
+    await loadLogs()
+  } catch (e: any) {
+    alert(e?.response?.data?.message || e?.message || '逾期检测失败')
+  }
+}
+
+// ==================== 工具 ====================
+function formatLocalDt(dt: string | undefined | null): string {
+  if (!dt) return ''
+  return dt.replace('T', ' ').slice(0, 16)
 }
 
 function viewDevice(deviceId: number) {
-  alert('查看设备详情：deviceId=' + deviceId + '（可跳转到设备台账查看页面）')
-}
-
-function statusLabel(s: string): string {
-  const m: Record<string, string> = { pending: '待审核', approved: '已通过', rejected: '已驳回', cancelled: '已取消' }
-  return m[s] || s
+  alert('查看设备详情：deviceId=' + deviceId + '（可在设备台账页面查看）')
 }
 </script>
 
@@ -367,10 +590,16 @@ function statusLabel(s: string): string {
 .stat-label { font-size:12px; color:#999; margin-top:2px }
 .highlight { color:#1a73e8 }
 .green { color:#27ae60 }
-.orange { color:#f39c12 }
+.red { color:#e74c3c }
 
-/* 筛选栏 */
-.filter-bar { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; gap:12px; flex-wrap:wrap }
+/* 顶部 Tab */
+.section-tabs { display:flex; gap:0; margin-bottom:16px; background:rgba(255,255,255,.4); border-radius:10px; padding:4px }
+.section-tab { padding:9px 24px; border-radius:8px; font-size:14px; font-weight:500; color:#666; cursor:pointer; transition:all .15s; user-select:none }
+.section-tab:hover { color:#333; background:rgba(0,0,0,.03) }
+.section-tab.active { background:#fff; color:#1a73e8; font-weight:600; box-shadow:0 1px 3px rgba(0,0,0,.08) }
+
+/* 操作栏 */
+.action-bar { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; gap:12px; flex-wrap:wrap }
 .filter-tabs { display:flex; gap:4px; background:rgba(255,255,255,.4); border-radius:10px; padding:4px }
 .filter-tab { padding:8px 16px; border-radius:8px; font-size:13px; color:#666; cursor:pointer; transition:all .15s; display:flex; align-items:center; gap:6px; user-select:none; white-space:nowrap }
 .filter-tab:hover { color:#333; background:rgba(0,0,0,.03) }
@@ -378,8 +607,13 @@ function statusLabel(s: string): string {
 .tab-count { font-size:11px; background:rgba(0,0,0,.06); padding:1px 7px; border-radius:10px; color:#888 }
 .filter-tab.active .tab-count { background:rgba(26,115,232,.1); color:#1a73e8 }
 .search-input { padding:8px 12px; border:1px solid rgba(0,0,0,.1); border-radius:10px; font-size:13px; outline:none; width:180px; background:rgba(255,255,255,.7) }
+.toolbar-right { display:flex; align-items:center; gap:10px }
+.refresh-btn { display:flex; align-items:center; gap:5px; padding:7px 14px; border:1px solid rgba(0,0,0,.1); border-radius:8px; background:#fff; font-size:12px; color:#555; cursor:pointer; transition:.2s }
+.refresh-btn:hover { border-color:#1a73e8; color:#1a73e8 }
+.refresh-btn.spinning svg { animation:spin .6s linear }
+@keyframes spin { to { transform:rotate(360deg) } }
 
-/* 卡片列表 */
+/* 申请卡片列表 */
 .card-list { display:flex; flex-direction:column; gap:12px }
 .apply-card { background:rgba(255,255,255,.55); backdrop-filter:blur(10px); border-radius:12px; border:1px solid rgba(0,0,0,.04); display:flex; align-items:stretch; overflow:hidden; transition:border-color .2s }
 .apply-card.card-pending { border-left:3px solid #1a73e8 }
@@ -403,6 +637,7 @@ function statusLabel(s: string): string {
 .card-info-row { display:flex; align-items:baseline; gap:8px; font-size:13px }
 .info-label { color:#999; min-width:56px; flex-shrink:0 }
 .info-value { color:#333 }
+.purpose-text { color:#666; max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
 .device-link { color:#1a73e8; cursor:pointer; font-weight:500 }
 .device-link:hover { text-decoration:underline }
 .applicant-type { padding:1px 6px; border-radius:3px; font-size:11px; margin-left:6px }
@@ -419,8 +654,10 @@ function statusLabel(s: string): string {
 .btn-approve:hover { box-shadow:0 4px 12px rgba(39,174,96,.3) }
 .btn-reject { padding:9px 20px; border:1px solid rgba(231,76,60,.3); border-radius:10px; background:#fff; color:#e74c3c; font-size:13px; cursor:pointer; white-space:nowrap; transition:.15s }
 .btn-reject:hover { background:rgba(231,76,60,.05); border-color:#e74c3c }
-.btn-revoke { padding:8px 16px; border:1px solid rgba(0,0,0,.1); border-radius:8px; background:#fff; color:#888; font-size:12px; cursor:pointer }
-.btn-revoke:hover { border-color:#e74c3c; color:#e74c3c }
+.btn-checkout { padding:9px 20px; border:none; border-radius:10px; background:linear-gradient(135deg,#1a73e8,#4a90d9); color:#fff; font-size:13px; font-weight:500; cursor:pointer; white-space:nowrap; transition:.15s }
+.btn-checkout:hover { box-shadow:0 4px 12px rgba(26,115,232,.3) }
+.btn-overdue { padding:8px 16px; border:1px solid rgba(231,76,60,.3); border-radius:8px; background:#fff; color:#e74c3c; font-size:13px; cursor:pointer; white-space:nowrap }
+.btn-overdue:hover { background:rgba(231,76,60,.05) }
 .card-final-text { font-size:12px; color:#bbb }
 
 .empty-state { display:flex; flex-direction:column; align-items:center; padding:60px 0; color:#ccc; gap:8px }
@@ -429,6 +666,27 @@ function statusLabel(s: string): string {
 .pagination { display:flex; align-items:center; justify-content:center; gap:10px; margin-top:18px }
 .pagination button { padding:7px 16px; border:1px solid rgba(0,0,0,.1); border-radius:8px; background:#fff; font-size:13px; cursor:pointer; color:#555 }
 .pagination button:disabled { opacity:.4; cursor:not-allowed }
+
+/* 借用记录表格 */
+.data-table-wrap { background:rgba(255,255,255,.5); border-radius:12px; border:1px solid rgba(0,0,0,.04); overflow-x:auto }
+.data-table { width:100%; border-collapse:collapse; min-width:800px }
+.data-table th,.data-table td { padding:11px 14px; text-align:left; font-size:13px; border-bottom:1px solid rgba(0,0,0,.04); white-space:nowrap }
+.data-table th { font-weight:600; color:#666; background:rgba(0,0,0,.015); font-size:12px }
+.device-name { font-weight:600; color:#1a1a2e }
+.remark-cell { max-width:140px; overflow:hidden; text-overflow:ellipsis; color:#888; font-size:12px }
+
+.log-status-tag { padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600 }
+.ls-1 { background:rgba(26,115,232,.1); color:#1a73e8 }
+.ls-2 { background:rgba(39,174,96,.1); color:#27ae60 }
+.ls-3 { background:rgba(231,76,60,.1); color:#e74c3c }
+.overdue-tag { margin-left:4px; padding:1px 6px; border-radius:3px; background:rgba(231,76,60,.15); color:#e74c3c; font-size:10px; font-weight:600 }
+
+.action-cell { display:flex; gap:6px }
+.row-btn { padding:4px 12px; border:1px solid rgba(0,0,0,.1); border-radius:6px; background:#fff; font-size:11px; color:#555; cursor:pointer }
+.row-btn:hover { border-color:#1a73e8; color:#1a73e8 }
+.checkin-btn { border-color:#27ae60; color:#27ae60 }
+.checkin-btn:hover { background:rgba(39,174,96,.06) }
+.done-text { font-size:12px; color:#999 }
 </style>
 
 <!-- 弹窗样式 -->
@@ -446,6 +704,7 @@ function statusLabel(s: string): string {
 .modal-btn.cancel:hover { background:rgba(0,0,0,.08) }
 .modal-btn.primary { background:linear-gradient(135deg,#27ae60,#2ecc71); color:#fff }
 .modal-btn.primary:hover { box-shadow:0 4px 12px rgba(39,174,96,.3) }
+.modal-btn.primary.green { background:linear-gradient(135deg,#27ae60,#2ecc71) }
 .modal-btn.danger { background:linear-gradient(135deg,#e74c3c,#ec7063); color:#fff }
 .modal-btn.danger:hover:not(:disabled) { box-shadow:0 4px 12px rgba(231,76,60,.3) }
 .modal-btn:disabled { opacity:.4; cursor:not-allowed }
