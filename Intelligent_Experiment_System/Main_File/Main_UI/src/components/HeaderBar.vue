@@ -120,7 +120,7 @@ const childToParentMap: Record<string, string> = {
   'safety-check':'safety','safety-hazard':'safety','safety-alarm':'safety','safety-ledger':'safety',
   'clean-schedule':'safety','clean-review':'safety',
   'iot-monitor':'monitor','iot-threshold':'monitor','sensor-device':'monitor','3d-manager':'monitor',
-  'efficiency':'data','msg-template':'data','msg-publish':'data',
+  'efficiency':'data','ai-query':'data','msg-template':'data','msg-publish':'data',
 }
 
 // 根据当前页面推导顶部导航高亮
@@ -141,6 +141,7 @@ const pageNameMap = {
   'iot-monitor':'实时监测','iot-threshold':'阈值配置','sensor-device':'传感器设备',
   '3d-manager':'场景映射管理','3d-show':'3D漫游',
   'efficiency':'效能看板',
+  'ai-query':'智能数据查询',
   'msg-template':'消息模板','msg-publish':'消息发布','msg-inbox':'消息中心',
   'my-course':'我的课程','my-task':'实验任务','my-resource':'教学资源','my-score':'成绩评定',
   'device-search':'设备查询','device-borrow':'借用申请',
@@ -201,6 +202,7 @@ const navConfigs = {
         { key:'3d-show',label:'3D漫游',desc:'第一人称3D实验室实时漫游' },
       ],
       data:[
+        { key:'ai-query',label:'智能数据查询',desc:'用自然语言安全查询实验室业务数据' },
         { key:'efficiency',label:'效能看板',desc:'设备利用率、预约统计、故障率' },
         { key:'msg-template',label:'消息模板',desc:'消息模板CRUD管理' },
         { key:'msg-publish',label:'消息发布',desc:'向指定用户/群组发送消息' },

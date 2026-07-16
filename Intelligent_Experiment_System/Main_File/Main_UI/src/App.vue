@@ -203,6 +203,11 @@
           v-else-if="currentPage === 'efficiency'"
         />
 
+        <!-- 智能数据查询（管理员） -->
+        <AiChatPage
+          v-else-if="currentPage === 'ai-query' && isAdmin"
+        />
+
         <!-- 消息模板（管理员） -->
         <MsgTemplate
           v-else-if="currentPage === 'msg-template'"
@@ -372,6 +377,7 @@ import IotThreshold from './components/admin/IotThreshold.vue'
 import SensorDeviceManage from './components/admin/SensorDeviceManage.vue'
 import SceneManager from './components/admin/SceneManager.vue'
 import Efficiency from './components/admin/Efficiency.vue'
+import AiChatPage from './components/admin/ai-query/AiChatPage.vue'
 import MsgTemplate from './components/admin/MsgTemplate.vue'
 import MsgPublish from './components/admin/MsgPublish.vue'
 import LabManage from './components/admin/LabManage.vue'
@@ -751,6 +757,9 @@ function handleNavigate({ key, name }: { key: string; name: string }): void {
     currentPageName.value = name
   } else if (key === 'efficiency') {
     currentPage.value = 'efficiency'
+    currentPageName.value = name
+  } else if (key === 'ai-query') {
+    currentPage.value = 'ai-query'
     currentPageName.value = name
   } else if (key === 'msg-template') {
     currentPage.value = 'msg-template'

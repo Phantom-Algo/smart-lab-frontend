@@ -54,6 +54,7 @@ export function detectOfflineSensors(): Promise<number> {
 /** 获取所有实验室的传感器实时监测数据 */
 export function getLabMonitorData(): Promise<LabMonitorData[]> {
   return api.get<ApiResult<LabMonitorData[]>>('/iot/labs/monitor')
+    .then(res => res.data.data)
 }
 
 export interface SensorItem {
