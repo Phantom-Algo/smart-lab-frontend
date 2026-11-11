@@ -141,6 +141,27 @@ export interface BorrowApplyItem {
   approvedAt?: string
 }
 
+/** 当前登录用户的设备借用申请（字段与后端 BorrowApplyVO 保持一致）。 */
+export interface MyBorrowApplyItem {
+  id: number
+  applyNo: string
+  deviceId: number
+  deviceName: string
+  deviceNo: string
+  applicantId: number
+  applicantName: string
+  applicantType: number
+  expectedStartTime: string
+  expectedReturnTime: string
+  purpose?: string | null
+  applyStatus: number
+  applyStatusDesc: string
+  rejectReason?: string | null
+  isOverdue: number
+  createdAt: string
+  updatedAt: string
+}
+
 export interface BorrowApprovalRequest {
   applyNo: string
   action: 'approve' | 'reject'
@@ -158,6 +179,12 @@ export interface BorrowPageQuery {
 // 分页查询借用申请
 export function getBorrowApplies(query: BorrowPageQuery): Promise<PageResult<BorrowApplyItem>> {
   return api.get<ApiResult<PageResult<BorrowApplyItem>>>('/equipment/borrow-applies', { params: query })
+    .then(res => res.data.data)
+}
+
+/** 查询当前登录用户的设备借用申请。 */
+export function getMyBorrowApplies(query: Pick<BorrowPageQuery, 'pageNum' | 'pageSize' | 'applyStatus'> = {}): Promise<PageResult<MyBorrowApplyItem>> {
+  return api.get<ApiResult<PageResult<MyBorrowApplyItem>>>('/equipment/borrow-applies/my', { params: query })
     .then(res => res.data.data)
 }
 

@@ -1,526 +1,529 @@
 <template>
-  <div class="dashboard">
-    <!-- 欢迎区 -->
-    <div class="welcome-bar">
-      <div class="welcome-text">
-        <h2 class="welcome-greeting">你好，{{ userName }}</h2>
-        <p class="welcome-date">{{ todayStr }}</p>
+  <main class="dashboard">
+    <section class="hero glass-surface">
+      <div class="hero-copy">
+        <span class="eyebrow">STUDENT WORKSPACE</span>
+        <h1>你好，{{ userName }}</h1>
+        <p>{{ todayStr }} · {{ weekDay }}，继续完成你的实验学习计划。</p>
       </div>
-      <div class="welcome-stats">
-        <div class="stat-item">
-          <span class="stat-num">{{ borrowCount }}</span>
-          <span class="stat-label">借用中</span>
-        </div>
-        <div class="stat-item">
-          <span class="stat-num">{{ pendingTaskCount }}</span>
-          <span class="stat-label">待完成</span>
-        </div>
-        <div class="stat-item">
-          <span class="stat-num">{{ unreadMsgCount }}</span>
-          <span class="stat-label">未读消息</span>
+      <div class="hero-side">
+        <button class="refresh-button" :disabled="loading" title="刷新首页数据" @click="loadDashboard">
+          <svg :class="{ spinning: loading }" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M20 11a8 8 0 10-2.34 5.66M20 5v6h-6" />
+          </svg>
+          <span>{{ loading ? '更新中' : '刷新' }}</span>
+        </button>
+        <div class="stats" aria-label="学习数据概览">
+          <div v-for="stat in stats" :key="stat.label" class="stat-item">
+            <strong>{{ stat.value }}</strong>
+            <span>{{ stat.label }}</span>
+          </div>
         </div>
       </div>
-    </div>
+    </section>
 
-    <!-- 快捷入口 -->
-    <div class="quick-actions">
-      <div
+    <nav class="quick-actions" aria-label="快捷入口">
+      <button
         v-for="action in quickActions"
         :key="action.key"
-        class="action-card"
-        @click="$emit('navigate', { key: action.key, name: action.label })"
+        class="quick-action glass-surface"
+        @click="navigate(action.key, action.label)"
       >
-        <div class="action-icon" :style="{ background: action.color }">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#fff" stroke-width="1.8">
-            <path :d="action.iconPath"/>
-          </svg>
-        </div>
-        <span class="action-label">{{ action.label }}</span>
-      </div>
-    </div>
+        <span class="quick-icon" :style="{ '--accent': action.color, '--accent-soft': action.colorSoft }">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="action.iconPath" /></svg>
+        </span>
+        <span class="quick-copy">
+          <strong>{{ action.label }}</strong>
+          <small>{{ action.description }}</small>
+        </span>
+        <svg class="arrow-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+      </button>
+    </nav>
 
-    <!-- 双栏：待办 + 动态 -->
-    <div class="dashboard-row">
-      <!-- 待办提醒 -->
-      <div class="dash-card todo-card">
-        <div class="card-header clickable" @click="$emit('navigate', { key: 'my-task', name: '实验任务' })">
-          <h3>待办提醒</h3>
-          <span class="card-badge">{{ todoList.length }}</span>
-        </div>
-        <div class="todo-list" v-if="todoList.length > 0">
-          <div v-for="item in todoList" :key="item.id" class="todo-item">
-            <span class="todo-dot" :class="item.urgent ? 'urgent' : 'normal'"></span>
-            <div class="todo-body">
-              <span class="todo-title">{{ item.title }}</span>
-              <span class="todo-meta">{{ item.deadline }}</span>
-            </div>
+    <div class="content-grid">
+      <section class="panel glass-surface">
+        <header class="panel-header">
+          <div>
+            <span class="section-kicker">TASKS</span>
+            <h2>待完成任务</h2>
           </div>
-        </div>
-        <div v-else class="empty-hint">暂无待办事项</div>
-      </div>
+          <button class="text-button" @click="navigate('my-task', '实验任务')">
+            查看全部
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+          </button>
+        </header>
 
-      <!-- 借用动态 -->
-      <div class="dash-card borrow-card">
-        <div class="card-header clickable" @click="$emit('navigate', { key: 'device-borrow', name: '设备借用' })">
-          <h3>设备借用</h3>
+        <div v-if="loadErrors.tasks" class="state-box error-state">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3h.01"/></svg>
+          <span>{{ loadErrors.tasks }}</span>
         </div>
-        <div class="borrow-list" v-if="borrowItems.length > 0">
-          <div v-for="item in borrowItems" :key="item.id" class="borrow-item">
-            <span class="borrow-status" :class="item.status">
-              {{ item.status === 'using' ? '借用中' : item.status === 'pending' ? '审批中' : '已逾期' }}
+        <div v-else-if="loading && !hasLoaded" class="state-box">正在读取任务数据…</div>
+        <div v-else-if="visibleTasks.length" class="task-list">
+          <button
+            v-for="task in visibleTasks"
+            :key="task.taskId"
+            class="task-row"
+            @click="navigate('my-task', '实验任务')"
+          >
+            <span class="task-indicator" :class="deadlineClass(task.deadline)"></span>
+            <span class="task-copy">
+              <strong>{{ task.taskTitle }}</strong>
+              <small>{{ task.courseName }} · {{ task.taskNo }}</small>
             </span>
-            <span class="borrow-name">{{ item.name }}</span>
-            <span class="borrow-date">{{ item.deadline }}</span>
-          </div>
+            <time :class="deadlineClass(task.deadline)">{{ deadlineText(task.deadline) }}</time>
+          </button>
         </div>
-        <div v-else class="empty-hint">暂无借用记录</div>
-      </div>
+        <div v-else class="state-box success-state">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>当前没有待完成的实验任务</span>
+        </div>
+      </section>
+
+      <section class="panel glass-surface">
+        <header class="panel-header">
+          <div>
+            <span class="section-kicker">BORROWING</span>
+            <h2>设备借用</h2>
+          </div>
+          <button class="text-button" @click="navigate('device-borrow', '借用申请')">
+            申请记录
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+          </button>
+        </header>
+
+        <div v-if="loadErrors.borrows" class="state-box error-state">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3h.01"/></svg>
+          <span>{{ loadErrors.borrows }}</span>
+        </div>
+        <div v-else-if="loading && !hasLoaded" class="state-box">正在读取借用数据…</div>
+        <div v-else-if="visibleBorrows.length" class="borrow-list">
+          <button
+            v-for="item in visibleBorrows"
+            :key="item.id"
+            class="borrow-row"
+            @click="navigate('device-borrow', '借用申请')"
+          >
+            <span class="borrow-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14v10H5zM8 8V5h8v3m-5 5h2"/></svg>
+            </span>
+            <span class="borrow-copy">
+              <strong>{{ item.deviceName }}</strong>
+              <small>{{ item.deviceNo }} · {{ formatDateTime(item.expectedReturnTime) }} 前归还</small>
+            </span>
+            <span class="status-pill" :class="`status-${item.applyStatus}`">
+              {{ item.applyStatusDesc || borrowStatusLabel(item.applyStatus) }}
+            </span>
+          </button>
+        </div>
+        <div v-else class="state-box">暂无设备借用申请</div>
+      </section>
     </div>
 
-    <!-- 今日课程 -->
-    <div class="dash-card course-card">
-      <div class="card-header clickable" @click="$emit('navigate', { key: 'my-course', name: '我的课程' })">
-        <h3>今日课程</h3>
-        <span class="card-subtitle">{{ weekDay }}</span>
-      </div>
-      <div class="course-list" v-if="todayCourses.length > 0">
-        <div v-for="course in todayCourses" :key="course.id" class="course-item">
-          <div class="course-time">{{ course.time }}</div>
-          <div class="course-divider"></div>
-          <div class="course-info">
-            <span class="course-name">{{ course.name }}</span>
-            <span class="course-room">地点: {{ course.room }}</span>
-          </div>
-          <span class="course-status" :class="course.status">
-            {{ course.status === 'upcoming' ? '即将开始' : course.status === 'ongoing' ? '进行中' : '已结束' }}
-          </span>
+    <section class="panel course-panel glass-surface">
+      <header class="panel-header">
+        <div>
+          <span class="section-kicker">COURSES</span>
+          <h2>我的课程概览</h2>
         </div>
-      </div>
-      <div v-else class="empty-hint">今日暂无课程安排</div>
-    </div>
+        <button class="text-button" @click="navigate('my-course', '我的课程')">
+          进入课程中心
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+        </button>
+      </header>
 
-    <!-- 3D实验室漫游 -->
-    <div class="dash-card lab3d-card">
-      <div class="card-header">
-        <h3>3D 实验室漫游</h3>
-        <span class="card-subtitle">点击进入虚拟实验室</span>
+      <div v-if="loadErrors.courses" class="state-box error-state">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3h.01"/></svg>
+        <span>{{ loadErrors.courses }}</span>
       </div>
-      <div class="lab3d-grid">
-        <div
-          v-for="lab in lab3dList"
-          :key="lab.key"
-          class="lab3d-item"
-          :style="{ '--lab-color': lab.color, '--lab-color-light': lab.colorLight }"
-          @click="$emit('navigate', { key: '3d-show', name: lab.name })"
+      <div v-else-if="loading && !hasLoaded" class="state-box">正在读取课程数据…</div>
+      <div v-else-if="visibleCourses.length" class="course-grid">
+        <button
+          v-for="course in visibleCourses"
+          :key="course.courseId"
+          class="course-item"
+          @click="navigate('my-course', '我的课程')"
         >
-          <div class="lab3d-preview">
-            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" :stroke="lab.color" stroke-width="1.5">
-              <path :d="lab.iconPath"/>
-            </svg>
-          </div>
-          <span class="lab3d-name">{{ lab.name }}</span>
-          <span class="lab3d-desc">{{ lab.desc }}</span>
-        </div>
+          <span class="course-topline">
+            <small>{{ course.courseCode }}</small>
+            <span :class="['course-status', `course-status-${course.courseStatus}`]">
+              {{ courseStatusLabel(course.courseStatus) }}
+            </span>
+          </span>
+          <strong>{{ course.courseName }}</strong>
+          <span class="course-meta">{{ course.teacherName || '教师待设置' }} · {{ course.semester }}</span>
+        </button>
       </div>
-    </div>
-  </div>
+      <div v-else class="state-box">暂无已选课程，可前往课程中心选课</div>
+    </section>
+
+    <section class="panel explore-panel glass-surface">
+      <header class="panel-header">
+        <div>
+          <span class="section-kicker">VIRTUAL LAB</span>
+          <h2>3D 实验室漫游</h2>
+        </div>
+        <span class="panel-note">选择场景进入虚拟实验室</span>
+      </header>
+      <div class="lab-grid">
+        <button
+          v-for="lab in lab3dList"
+          :key="lab.name"
+          class="lab-item"
+          @click="navigate('3d-show', lab.name)"
+        >
+          <span class="lab-icon" :style="{ '--lab-color': lab.color, '--lab-soft': lab.colorSoft }">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="lab.iconPath"/></svg>
+          </span>
+          <span><strong>{{ lab.name }}</strong><small>{{ lab.description }}</small></span>
+        </button>
+      </div>
+    </section>
+  </main>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import { userName, userRole } from '../../stores/authStore'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { userName } from '../../stores/authStore'
 import { useMessageStore } from '../../stores/messageStore'
+import {
+  courseStatusLabel,
+  getCoursePage,
+  getMySubmission,
+  getTaskPage,
+  type CourseListItem,
+  type TaskListItem,
+} from '../../utils/teachingApi'
+import { getMyBorrowApplies, type MyBorrowApplyItem } from '../../utils/deviceApi'
 
-defineEmits(['navigate'])
+const emit = defineEmits<{
+  navigate: [payload: { key: string; name: string }]
+}>()
 
-const { totalUnread } = useMessageStore()
-const unreadMsgCount = computed(() => totalUnread.value)
+const { apiNewIdCount, fetchNewIds } = useMessageStore()
+const courses = ref<CourseListItem[]>([])
+const pendingTasks = ref<TaskListItem[]>([])
+const borrowApplications = ref<MyBorrowApplyItem[]>([])
+const loading = ref(false)
+const hasLoaded = ref(false)
+const loadErrors = reactive({ courses: '', tasks: '', borrows: '' })
 
-// 日期
 const now = new Date()
 const weekDays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
-const todayStr = computed(() => `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`)
-const weekDay = computed(() => weekDays[now.getDay()])
+const todayStr = new Intl.DateTimeFormat('zh-CN', {
+  year: 'numeric', month: 'long', day: 'numeric',
+}).format(now)
+const weekDay = weekDays[now.getDay()]
 
-// 快捷入口
 const quickActions = [
-  { key: 'my-course', label: '我的课程', color: '#4A90D9', iconPath: 'M4 6h16M4 10h16M4 14h16M4 18h16' },
-  { key: 'device-borrow', label: '设备借用', color: '#27AE60', iconPath: 'M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z' },
-  { key: 'lab-search', label: '实验室查询', color: '#E67E22', iconPath: 'M3 21h18M9 21V3l-6 6M15 21V9l6 6' },
-  { key: 'clean-arrange', label: '值日安排', color: '#8E44AD', iconPath: 'M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 22 12 18.56 5.82 22 7 14.14l-5-4.87 6.91-1.01z' },
+  { key: 'my-course', label: '我的课程', description: '查看课程与学习资料', color: '#2563eb', colorSoft: 'rgba(37, 99, 235, .12)', iconPath: 'M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5zm0 0v16M8 7h8M8 11h6' },
+  { key: 'device-borrow', label: '设备借用', description: '提交与跟踪借用申请', color: '#059669', colorSoft: 'rgba(5, 150, 105, .12)', iconPath: 'M5 8h14v11H5zM8 8V5h8v3m-5 5h2' },
+  { key: 'lab-search', label: '实验室查询', description: '查看实验室开放信息', color: '#7c3aed', colorSoft: 'rgba(124, 58, 237, .12)', iconPath: 'M4 21h16M7 21V5l5-2 5 2v16M9 9h.01M15 9h.01M9 13h.01M15 13h.01M10 21v-4h4v4' },
 ]
 
-// 借用统计
-const borrowCount = 1
-
-// 待办列表
-const todoList = [
-  { id: 1, title: '有机化学实验报告提交', deadline: '截止: 7月12日 23:59', urgent: true },
-  { id: 2, title: '实验室安全培训考核', deadline: '截止: 7月15日 17:00', urgent: true },
-  { id: 3, title: '卫生值日 - A201实验室', deadline: '7月10日 08:00', urgent: false },
-]
-const pendingTaskCount = todoList.length
-
-// 借用列表
-const borrowItems = [
-  { id: 1, name: '旋转蒸发仪 (EQU-2024-0001)', status: 'using', deadline: '应于7月10日归还' },
-  { id: 2, name: '数字示波器 (EQU-2024-0015)', status: 'pending', deadline: '等待审批' },
-]
-
-// 今日课程
-const todayCourses = [
-  { id: 1, time: '08:00-10:00', name: '有机化学实验', room: 'A201有机化学实验室', status: 'ongoing' },
-  { id: 2, time: '14:00-16:00', name: '大学物理实验', room: 'B103物理实验室', status: 'upcoming' },
-]
-
-// 3D实验室列表（对应Unity场景）
 const lab3dList = [
-  { key: '3d-class', name: '教学实验室', desc: '标准教学实验环境', color: '#4A90D9', colorLight: 'rgba(74,144,217,.1)', iconPath: 'M4 6h16M4 10h16M4 14h16M4 18h16M9 3v18' },
-  { key: '3d-common', name: '通用实验室', desc: '多功能综合实验室', color: '#27AE60', colorLight: 'rgba(39,174,96,.1)', iconPath: 'M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18' },
-  { key: '3d-computer', name: '计算机实验室', desc: '计算机与网络实验', color: '#E67E22', colorLight: 'rgba(230,126,34,.1)', iconPath: 'M20 18V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12m16 0a2 2 0 01-2 2H6a2 2 0 01-2-2m16 0v-4M4 14v4m0-4h16' },
-  { key: '3d-group', name: '小组研讨室', desc: '小组讨论与协作空间', color: '#8E44AD', colorLight: 'rgba(142,68,173,.1)', iconPath: 'M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M23 21v-2a4 4 0 00-4-4h-1M7 7a4 4 0 108 0 4 4 0 00-8 0zm10-2a4 4 0 110 8' },
-  { key: '3d-reagent', name: '器材借用室', desc: '试剂与器材领用管理', color: '#E74C3C', colorLight: 'rgba(231,76,60,.1)', iconPath: 'M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16zM3.27 6.96L12 12.01l8.73-5.05M12 22.08V12' },
+  { name: '教学实验室', description: '标准教学环境', color: '#2563eb', colorSoft: 'rgba(37,99,235,.1)', iconPath: 'M4 6h16M4 10h16M4 14h16M4 18h16M9 3v18' },
+  { name: '通用实验室', description: '综合实验空间', color: '#059669', colorSoft: 'rgba(5,150,105,.1)', iconPath: 'M4 4h16v16H4zM4 10h16M10 4v16' },
+  { name: '计算机实验室', description: '计算机与网络实验', color: '#ea580c', colorSoft: 'rgba(234,88,12,.1)', iconPath: 'M4 5h16v12H4zM8 21h8M12 17v4' },
+  { name: '小组研讨室', description: '协作与讨论空间', color: '#7c3aed', colorSoft: 'rgba(124,58,237,.1)', iconPath: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm9-3a3 3 0 0 1 0 6m4 7v-2a4 4 0 0 0-3-3.87' },
+  { name: '器材借用室', description: '器材领用管理', color: '#dc2626', colorSoft: 'rgba(220,38,38,.1)', iconPath: 'm12 3 8 4.5v9L12 21l-8-4.5v-9zm0 9 8-4.5M12 12 4 7.5M12 12v9' },
 ]
+
+const stats = computed(() => [
+  { label: '已选课程', value: courses.value.length },
+  { label: '待完成', value: pendingTasks.value.length },
+  { label: '借用申请', value: borrowApplications.value.filter(item => item.applyStatus === 1 || item.applyStatus === 2).length },
+  { label: '未读消息', value: apiNewIdCount.value },
+])
+
+const visibleTasks = computed(() => pendingTasks.value.slice(0, 4))
+const visibleBorrows = computed(() => borrowApplications.value.slice(0, 4))
+const visibleCourses = computed(() => courses.value.slice(0, 4))
+
+function navigate(key: string, name: string): void {
+  emit('navigate', { key, name })
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  const responseMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message
+  return responseMessage || (error instanceof Error ? error.message : fallback)
+}
+
+async function loadCourses(): Promise<void> {
+  try {
+    const result = await getCoursePage({ pageNum: 1, pageSize: 100 })
+    courses.value = result.records || []
+    loadErrors.courses = ''
+  } catch (error) {
+    loadErrors.courses = errorMessage(error, '课程数据加载失败')
+  }
+}
+
+async function loadTasks(): Promise<void> {
+  try {
+    const result = await getTaskPage({ pageNum: 1, pageSize: 100, taskStatus: 2 })
+    const tasks = result.records || []
+    const submissionResults = await Promise.allSettled(tasks.map(task => getMySubmission(task.taskId)))
+    const unexpectedFailure = submissionResults.find(result =>
+      result.status === 'rejected'
+      && !(result.reason instanceof Error && result.reason.message.includes('任务提交不存在'))
+    )
+    if (unexpectedFailure?.status === 'rejected') throw unexpectedFailure.reason
+    pendingTasks.value = tasks
+      .filter((_task, index) => {
+        const submission = submissionResults[index]
+        return submission.status === 'rejected' || submission.value.submitStatus === 2
+      })
+      .sort((left, right) => new Date(left.deadline).getTime() - new Date(right.deadline).getTime())
+    loadErrors.tasks = ''
+  } catch (error) {
+    loadErrors.tasks = errorMessage(error, '任务数据加载失败')
+  }
+}
+
+async function loadBorrows(): Promise<void> {
+  try {
+    const result = await getMyBorrowApplies({ pageNum: 1, pageSize: 100 })
+    borrowApplications.value = (result.records || [])
+      .slice()
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+    loadErrors.borrows = ''
+  } catch (error) {
+    loadErrors.borrows = errorMessage(error, '借用数据加载失败')
+  }
+}
+
+async function loadDashboard(): Promise<void> {
+  if (loading.value) return
+  loading.value = true
+  await Promise.allSettled([loadCourses(), loadTasks(), loadBorrows(), fetchNewIds()])
+  hasLoaded.value = true
+  loading.value = false
+}
+
+function formatDateTime(value: string): string {
+  return value ? value.replace('T', ' ').slice(0, 16) : '时间待定'
+}
+
+function deadlineText(value: string): string {
+  if (!value) return '截止时间待定'
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime())) return formatDateTime(value)
+  const prefix = date.getTime() < Date.now() ? '已截止' : '截止'
+  return `${prefix} ${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
+function deadlineClass(value: string): string {
+  const time = new Date(value).getTime()
+  if (!Number.isFinite(time)) return 'normal'
+  if (time < Date.now()) return 'overdue'
+  return time - Date.now() <= 48 * 60 * 60 * 1000 ? 'urgent' : 'normal'
+}
+
+function borrowStatusLabel(status: number): string {
+  return ({ 1: '待审批', 2: '已通过', 3: '已驳回', 4: '已取消' } as Record<number, string>)[status] || '未知状态'
+}
+
+onMounted(loadDashboard)
 </script>
 
 <style scoped>
 .dashboard {
   height: 100%;
   overflow-y: auto;
-  padding: 28px 36px;
+  box-sizing: border-box;
+  padding: clamp(20px, 2.4vw, 36px);
+  color: #172033;
 }
 
-/* ===== 欢迎区 ===== */
-.welcome-bar {
+.glass-surface {
+  background: rgba(255, 255, 255, .68);
+  border: 1px solid rgba(255, 255, 255, .74);
+  box-shadow: 0 14px 38px rgba(70, 101, 143, .09);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.hero {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 28px;
+  gap: 30px;
+  padding: 26px 30px;
+  border-radius: 22px;
 }
 
-.welcome-greeting {
-  font-size: 22px;
-  font-weight: 700;
-  color: #1a1a2e;
-  margin: 0 0 4px;
-}
-
-.welcome-date {
-  font-size: 13px;
-  color: #999;
-  margin: 0;
-}
-
-.welcome-stats {
-  display: flex;
-  gap: 24px;
-}
-
-.stat-item {
-  text-align: center;
-}
-
-.stat-num {
+.eyebrow, .section-kicker {
   display: block;
-  font-size: 24px;
-  font-weight: 700;
-  color: #1a73e8;
+  color: #2563eb;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .16em;
+}
+
+.hero h1 {
+  margin: 7px 0 6px;
+  color: #111827;
+  font-size: clamp(24px, 2vw, 32px);
   line-height: 1.2;
 }
 
-.stat-label {
-  font-size: 12px;
-  color: #999;
+.hero p {
+  margin: 0;
+  color: #718096;
+  font-size: 13px;
 }
 
-/* ===== 快捷入口 ===== */
+.hero-side {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.refresh-button, .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  font: inherit;
+}
+
+.refresh-button {
+  padding: 8px 10px;
+  border: 1px solid rgba(148, 163, 184, .22);
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.refresh-button:disabled { cursor: default; opacity: .65; }
+.refresh-button svg, .text-button svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.spinning { animation: spin .9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.stats { display: flex; gap: clamp(18px, 2.5vw, 34px); }
+.stat-item { min-width: 54px; text-align: center; }
+.stat-item strong { display: block; color: #0f172a; font-size: 25px; line-height: 1.15; }
+.stat-item span { color: #8793a5; font-size: 11px; }
+
 .quick-actions {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
-  margin-bottom: 24px;
+  margin: 16px 0;
 }
 
-.action-card {
+.quick-action {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 10px;
-  padding: 22px 16px;
-  background: rgba(255,255,255,.55);
-  border-radius: 12px;
+  gap: 13px;
+  min-width: 0;
+  padding: 16px 18px;
+  border-radius: 16px;
+  color: inherit;
+  text-align: left;
   cursor: pointer;
-  transition: all .18s;
-  border: 1px solid rgba(0,0,0,.04);
-}
-.action-card:hover {
-  background: rgba(255,255,255,.85);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(0,0,0,.08);
+  transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
 }
 
-.action-icon {
-  width: 46px;
-  height: 46px;
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
+.quick-action:hover { transform: translateY(-2px); background: rgba(255,255,255,.84); box-shadow: 0 16px 34px rgba(70,101,143,.13); }
+.quick-icon, .lab-icon, .borrow-icon { display: grid; place-items: center; flex: 0 0 auto; }
+.quick-icon { width: 42px; height: 42px; border-radius: 12px; color: var(--accent); background: var(--accent-soft); }
+.quick-icon svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; }
+.quick-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 3px; }
+.quick-copy strong { font-size: 14px; }
+.quick-copy small { overflow: hidden; color: #8a96a8; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.arrow-icon { width: 17px; height: 17px; fill: none; stroke: #9aa5b5; stroke-width: 1.7; }
 
-.action-label {
-  font-size: 13px;
-  font-weight: 500;
-  color: #444;
-}
+.content-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr); gap: 16px; }
+.panel { min-width: 0; padding: 22px; border-radius: 20px; }
+.course-panel, .explore-panel { margin-top: 16px; }
+.panel-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.panel-header h2 { margin: 4px 0 0; color: #172033; font-size: 16px; }
+.text-button { padding: 3px 0; color: #64748b; font-size: 11px; }
+.text-button:hover { color: #2563eb; }
+.panel-note { color: #8a96a8; font-size: 11px; }
 
-/* ===== 双栏卡片 ===== */
-.dashboard-row {
-  display: flex;
-  gap: 20px;
-  margin-bottom: 24px;
-}
-
-.dash-card {
-  flex: 1;
-  background: rgba(255,255,255,.5);
-  border-radius: 14px;
-  padding: 20px 22px;
-  border: 1px solid rgba(0,0,0,.04);
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 14px;
-}
-.card-header.clickable {
+.task-list, .borrow-list { display: flex; flex-direction: column; }
+.task-row, .borrow-row, .course-item, .lab-item {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   cursor: pointer;
-  user-select: none;
 }
-.card-header.clickable:hover h3 {
-  color: #1a73e8;
+.task-row, .borrow-row { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 12px 4px; border-top: 1px solid rgba(148,163,184,.16); }
+.task-row:first-child, .borrow-row:first-child { border-top: 0; }
+.task-row:hover strong, .borrow-row:hover strong { color: #2563eb; }
+.task-indicator { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: #3b82f6; box-shadow: 0 0 0 4px rgba(59,130,246,.1); }
+.task-indicator.urgent { background: #f59e0b; box-shadow: 0 0 0 4px rgba(245,158,11,.1); }
+.task-indicator.overdue { background: #ef4444; box-shadow: 0 0 0 4px rgba(239,68,68,.1); }
+.task-copy, .borrow-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 4px; }
+.task-copy strong, .borrow-copy strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; transition: color .15s; }
+.task-copy small, .borrow-copy small { overflow: hidden; color: #8a96a8; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.task-row time { flex: 0 0 auto; color: #64748b; font-size: 10px; }
+.task-row time.urgent { color: #b45309; }
+.task-row time.overdue { color: #dc2626; }
+
+.borrow-icon { width: 34px; height: 34px; border-radius: 10px; color: #2563eb; background: rgba(37,99,235,.09); }
+.borrow-icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.status-pill { flex: 0 0 auto; padding: 4px 8px; border-radius: 999px; background: #f1f5f9; color: #64748b; font-size: 9px; font-weight: 650; }
+.status-1 { background: #fff7ed; color: #c2410c; }
+.status-2 { background: #ecfdf5; color: #047857; }
+.status-3 { background: #fef2f2; color: #b91c1c; }
+
+.course-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.course-item { display: flex; min-width: 0; flex-direction: column; gap: 9px; padding: 15px; border: 1px solid rgba(148,163,184,.16); border-radius: 14px; background: rgba(255,255,255,.34); transition: border-color .18s ease, transform .18s ease, background .18s ease; }
+.course-item:hover { transform: translateY(-2px); border-color: rgba(37,99,235,.28); background: rgba(255,255,255,.66); }
+.course-topline { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.course-topline small { overflow: hidden; color: #7b8798; font-size: 9px; text-overflow: ellipsis; }
+.course-item > strong { overflow: hidden; color: #1e293b; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.course-meta { overflow: hidden; color: #8a96a8; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.course-status { flex: 0 0 auto; padding: 3px 7px; border-radius: 999px; background: #f1f5f9; color: #64748b; font-size: 8px; }
+.course-status-1 { background: #eff6ff; color: #1d4ed8; }
+.course-status-2 { background: #f8fafc; color: #64748b; }
+.course-status-3 { background: #f1f5f9; color: #475569; }
+
+.lab-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.lab-item { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 11px; border-radius: 13px; transition: background .18s ease, transform .18s ease; }
+.lab-item:hover { transform: translateY(-1px); background: rgba(255,255,255,.48); }
+.lab-icon { width: 36px; height: 36px; border-radius: 10px; color: var(--lab-color); background: var(--lab-soft); }
+.lab-icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.55; stroke-linecap: round; stroke-linejoin: round; }
+.lab-item > span:last-child { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+.lab-item strong, .lab-item small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lab-item strong { color: #334155; font-size: 11px; }
+.lab-item small { color: #94a3b8; font-size: 9px; }
+
+.state-box { display: flex; min-height: 92px; align-items: center; justify-content: center; gap: 8px; color: #94a3b8; font-size: 12px; text-align: center; }
+.state-box svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.error-state { color: #b91c1c; }
+.success-state { color: #047857; }
+
+@media (max-width: 1120px) {
+  .hero { align-items: flex-start; }
+  .hero-side { align-items: flex-end; flex-direction: column-reverse; gap: 12px; }
+  .course-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lab-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
-.card-header h3 {
-  font-size: 15px;
-  font-weight: 600;
-  color: #1a1a2e;
-  margin: 0;
+@media (max-width: 800px) {
+  .hero { flex-direction: column; }
+  .hero-side { width: 100%; align-items: stretch; flex-direction: column-reverse; }
+  .stats { justify-content: space-between; }
+  .refresh-button { align-self: flex-start; }
+  .quick-actions, .content-grid { grid-template-columns: 1fr; }
+  .lab-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-.card-badge {
-  min-width: 22px;
-  height: 22px;
-  border-radius: 11px;
-  background: #e74c3c;
-  color: #fff;
-  font-size: 11px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 6px;
-}
-
-.card-subtitle {
-  font-size: 12px;
-  color: #999;
-}
-
-.empty-hint {
-  text-align: center;
-  padding: 28px 0;
-  color: #bbb;
-  font-size: 13px;
-}
-
-/* 待办 */
-.todo-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.todo-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-}
-
-.todo-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-top: 5px;
-  flex-shrink: 0;
-}
-.todo-dot.urgent { background: #e74c3c; }
-.todo-dot.normal { background: #f39c12; }
-
-.todo-body {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.todo-title {
-  font-size: 13px;
-  color: #333;
-  font-weight: 500;
-}
-
-.todo-meta {
-  font-size: 11px;
-  color: #bbb;
-}
-
-/* 借用 */
-.borrow-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.borrow-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.borrow-status {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 4px;
-  white-space: nowrap;
-}
-.borrow-status.using { background: rgba(26,115,232,.1); color: #1a73e8; }
-.borrow-status.pending { background: rgba(243,156,18,.1); color: #e67e22; }
-.borrow-status.overdue { background: rgba(231,76,60,.1); color: #e74c3c; }
-
-.borrow-name {
-  flex: 1;
-  font-size: 13px;
-  color: #333;
-}
-
-.borrow-date {
-  font-size: 11px;
-  color: #bbb;
-  white-space: nowrap;
-}
-
-/* 课程 */
-.course-card {
-  margin-bottom: 0;
-}
-
-.course-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.course-item {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
-.course-time {
-  font-size: 14px;
-  font-weight: 600;
-  color: #1a73e8;
-  white-space: nowrap;
-}
-
-.course-divider {
-  width: 3px;
-  height: 28px;
-  border-radius: 2px;
-  background: #e0e0e0;
-}
-
-.course-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.course-name {
-  font-size: 14px;
-  font-weight: 500;
-  color: #333;
-}
-
-.course-room {
-  font-size: 12px;
-  color: #999;
-}
-
-.course-status {
-  font-size: 11px;
-  font-weight: 500;
-  padding: 3px 10px;
-  border-radius: 4px;
-  white-space: nowrap;
-}
-.course-status.ongoing { background: rgba(39,174,96,.1); color: #27ae60; }
-.course-status.upcoming { background: rgba(26,115,232,.08); color: #1a73e8; }
-.course-status.done { color: #bbb; }
-
-/* ===== 3D实验室漫游 ===== */
-.lab3d-card {
-  margin-top: 24px;
-}
-
-.lab3d-grid {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 14px;
-}
-
-.lab3d-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 24px 12px 18px;
-  border-radius: 14px;
-  background: var(--lab-color-light, rgba(26,115,232,.06));
-  border: 1px solid rgba(0,0,0,.04);
-  cursor: pointer;
-  transition: all .2s;
-}
-.lab3d-item:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 6px 24px rgba(0,0,0,.08);
-  border-color: var(--lab-color, #1a73e8);
-}
-
-.lab3d-preview {
-  width: 56px;
-  height: 56px;
-  border-radius: 14px;
-  background: rgba(255,255,255,.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.lab3d-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: #333;
-  margin-top: 2px;
-}
-
-.lab3d-desc {
-  font-size: 11px;
-  color: #999;
-  text-align: center;
+@media (max-width: 520px) {
+  .dashboard { padding: 14px; }
+  .hero, .panel { padding: 18px; border-radius: 17px; }
+  .stats { gap: 10px; }
+  .stat-item strong { font-size: 20px; }
+  .quick-copy small, .task-row time { display: none; }
+  .course-grid, .lab-grid { grid-template-columns: 1fr; }
+  .panel-header { align-items: flex-end; }
 }
 </style>

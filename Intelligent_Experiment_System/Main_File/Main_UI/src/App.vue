@@ -259,20 +259,15 @@
           v-else-if="currentPage === 'lab-reserve'"
         />
 
-        <!-- 隐患上报 -->
+        <!-- 隐患上报（教师） -->
         <HazardReport
-          v-else-if="currentPage === 'hazard-report'"
+          v-else-if="currentPage === 'hazard-report' && isTeacher"
         />
 
-        <!-- 我的上报 -->
+        <!-- 我的上报（教师） -->
         <MyReport
-          v-else-if="currentPage === 'my-report'"
+          v-else-if="currentPage === 'my-report' && isTeacher"
           @navigate="handleNavigate"
-        />
-
-        <!-- 值日安排（学生） -->
-        <CleanArrange
-          v-else-if="currentPage === 'clean-arrange' && isStudent"
         />
 
         <!-- 值日安排（教师） -->
@@ -285,11 +280,6 @@
         <TeacherCleanEvaluate
           v-else-if="currentPage === 'clean-evaluate' && isTeacher"
           @navigate="handleNavigate"
-        />
-
-        <!-- 我的签到 -->
-        <CleanSign
-          v-else-if="currentPage === 'clean-sign'"
         />
 
         <!-- 耗材查询（教师） -->
@@ -389,8 +379,6 @@ import BorrowApply from './components/student/BorrowApply.vue'
 import LabSearch from './components/student/LabSearch.vue'
 import HazardReport from './components/student/HazardReport.vue'
 import MyReport from './components/student/MyReport.vue'
-import CleanArrange from './components/student/CleanArrange.vue'
-import CleanSign from './components/student/CleanSign.vue'
 import ConsumableSearch from './components/teacher/ConsumableSearch.vue'
 import ConsumableApply from './components/teacher/ConsumableApply.vue'
 import TeacherCleanArrange from './components/teacher/TeacherCleanArrange.vue'
@@ -650,17 +638,14 @@ function handleNavigate({ key, name }: { key: string; name: string }): void {
   } else if (key === 'lab-search') {
     currentPage.value = 'lab-search'
     currentPageName.value = name
-  } else if (key === 'hazard-report') {
+  } else if (key === 'hazard-report' && isTeacher.value) {
     currentPage.value = 'hazard-report'
     currentPageName.value = name
-  } else if (key === 'my-report') {
+  } else if (key === 'my-report' && isTeacher.value) {
     currentPage.value = 'my-report'
     currentPageName.value = name
-  } else if (key === 'clean-arrange') {
+  } else if (key === 'clean-arrange' && isTeacher.value) {
     currentPage.value = 'clean-arrange'
-    currentPageName.value = name
-  } else if (key === 'clean-sign') {
-    currentPage.value = 'clean-sign'
     currentPageName.value = name
   } else if (key === 'my-resource') {
     currentPage.value = 'my-resource'

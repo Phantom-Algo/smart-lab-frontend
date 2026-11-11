@@ -105,7 +105,7 @@ const childToParentMap: Record<string, string> = {
   'device-search':'resource','device-borrow':'resource',
   'lab-search':'resource',
   'hazard-report':'safety','my-report':'safety',
-  'clean-arrange':'safety','clean-sign':'safety',
+  'clean-arrange':'safety',
   '3d-show':'3d',
   // 教师
   'my-resource':'teaching','my-score':'teaching',
@@ -148,7 +148,7 @@ const pageNameMap = {
   'lab-search':'实验室查询',
   'consumable-search':'耗材查询','consumable-apply':'领用申请',
   'hazard-report':'隐患上报','my-report':'我的上报',
-  'clean-arrange':'值日安排','clean-evaluate':'检查评价','clean-sign':'我的签到',
+  'clean-arrange':'值日安排','clean-evaluate':'检查评价',
   'my-grade':'我的成绩',
 }
 
@@ -258,7 +258,7 @@ const navConfigs = {
   student: {
     items: [
       { key:'home',label:'首页' },{ key:'study',label:'我的学习' },{ key:'resource',label:'资源中心' },
-      { key:'safety',label:'安全卫生' },{ key:'3d',label:'3D全景' },
+      { key:'3d',label:'3D全景' },
     ],
     children: {
       study:[
@@ -271,12 +271,6 @@ const navConfigs = {
         { key:'device-borrow',label:'借用申请',desc:'提交设备借用申请' },
         { key:'lab-search',label:'实验室查询',desc:'查看实验室信息与开放时间' },
       ],
-      safety:[
-        { key:'hazard-report',label:'隐患上报',desc:'发现安全问题后自主上报' },
-        { key:'my-report',label:'我的上报',desc:'查看上报记录与处理进度' },
-        { key:'clean-arrange',label:'值日安排',desc:'查看值日排班表' },
-        { key:'clean-sign',label:'我的签到',desc:'值日签到打卡' },
-      ],
       '3d':[
         { key:'3d-show',label:'3D漫游',desc:'进入第一人称3D实验室实时漫游' },
       ],
@@ -284,7 +278,6 @@ const navConfigs = {
     desc: {
       study:{ title:'我的学习中心',desc:'查看课程、完成实验任务、追踪学习成绩，一站式管理你的实验学习进度。' },
       resource:{ title:'实验资源中心',desc:'查询可用设备和实验室信息，提交设备借用申请，跟踪借用与归还状态。' },
-      safety:{ title:'安全与卫生',desc:'上报实验室安全隐患，查看值日安排并完成签到，共同维护实验室安全与卫生。' },
       '3d':{ title:'3D全景展示',desc:'进入虚拟3D实验室场景，沉浸式漫游，了解实验室环境和设备布局。' },
     },
   },
